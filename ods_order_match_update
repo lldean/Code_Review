@@ -1,0 +1,224 @@
+--ods_order_match
+select count(distinct order_id) as distinct_order_id_count, 
+       count(ecommerce_flag) as ecommerce_flag,
+       count(web_only_flag) as web_only_flag,
+       count(computer_tablet_flag) as computer_tablet_flag,
+       count(mobile_flag) as mobile_flag,
+       count(mobile_tst_flag) as mobile_tst_flag,
+       count(dsg_native_app_flag) as dsg_native_app_flag,
+       count(gg_native_app_flag) as gg_native_app_flag,
+       count(aos_flag) as aos_flag,
+--SELECT *
+from
+(
+  WITH
+    dates AS (
+      SELECT
+        /* Regular run */
+        -- DATE_SUB(CURRENT_DATE("America/New_York"), INTERVAL 5 DAY) AS dt_begin,
+        -- DATE_SUB(CURRENT_DATE("America/New_York"), INTERVAL 1 DAY) AS dt_end
+        /* Backfill */
+          CAST('2022-02-17' AS DATE) AS dt_begin,
+          CAST('2022-03-09' AS DATE) AS dt_end
+    )
+
+  SELECT
+      match.*,
+      CASE WHEN ecom._order_id IS NOT NULL THEN 1 END AS ecommerce_flag,
+      CASE WHEN web._order_id IS NOT NULL THEN 1 END AS web_only_flag,
+      CASE WHEN ct._order_id IS NOT NULL THEN 1 END AS computer_tablet_flag,
+      CASE WHEN mob._order_id IS NOT NULL THEN 1 END AS mobile_flag,
+      CASE WHEN mob_tst._order_id IS NOT NULL THEN 1 END AS mobile_tst_flag,
+      CASE WHEN dsg_na._order_id IS NOT NULL THEN 1 END AS dsg_native_app_flag,
+      CASE WHEN gg_na._order_id IS NOT NULL THEN 1 END AS gg_native_app_flag,
+      CASE WHEN aos._order_id IS NOT NULL THEN 1 END AS aos_flag,
+      associate.associate_ind
+  FROM (
+    SELECT
+      IFNULL(oh.order_date, clk.tran_date) AS tran_date,
+      IFNULL(oh.order_date_key, clk.date_id) AS date_key,
+      IFNULL(oh.webstore_key, clk._webstore_key) AS webstore_key,
+      IFNULL(oh.web_ord_num, clk._order_id) AS order_id,
+      oh.order_header_key,
+      CASE
+        WHEN oh.test_order_flg = 'Y' THEN 'test order'
+        WHEN oh.web_ord_num IS NOT NULL AND clk._order_id IS NOT NULL THEN 'match'
+        WHEN oh.web_ord_num IS NOT NULL AND clk._order_id IS NULL THEN 'clk missing'
+        WHEN oh.web_ord_num IS NULL AND clk._order_id IS NOT NULL THEN 'ods missing'
+        ELSE 'no match'
+      END AS match_status,
+      clk._visit_id,
+      MAX(oh.order_source_code) AS ods_order_source_code,
+      MAX(clk._report_suite) AS report_suite,
+      MAX(clk.post_evar13) AS cart_id,
+      MAX(clk.post_evar45) AS dks_website,
+      MAX(clk.post_evar64) AS site_experience_type,
+      MAX(clk.post_evar8) AS internal_flag,
+      MAX(clk.post_evar14) AS payment_methods,
+      MAX(clk.post_evar21) AS loyalty_customer_id,
+      MAX(clk.post_evar57) AS kiosk_store,
+      MAX(clk.ps_evar51) AS fulfillment_methods,
+      MAX(clk.post_evar17) AS checkout_type,
+      MAX(clk.post_evar42) AS user_agent,
+      MAX(clk.post_evar50) AS swimlane,
+      MAX(clk.post_evar92) AS channel_manager_ft,
+      MAX(clk.post_evar93) AS channel_manager_lt,
+      MAX(clk.post_prop56) AS base_code_version,
+      MAX(clk.post_prop17) AS page_code_version,
+      SUM(clk._units) AS units,
+      SUM(clk._revenue) AS revenue,
+      SUM(clk.event_id_215) AS order_level_discount,
+      SUM(clk.event_id_218) AS item_level_discount,
+      SUM(clk.event_id_207) AS shipping_revenue,
+      SUM(clk.event_id_208) AS shipping_discount,
+      SUM(clk.event_id_231) AS tax_amount,
+      SUM(clk.event_id_229) AS warranty_revenue
+    FROM (
+      SELECT *
+      FROM dates, `p-wardar-381480765.clk.clickstream_plus`
+      WHERE 
+        tran_date BETWEEN dt_begin and dt_end
+        AND post_purchaseid IS NOT NULL
+        AND duplicate_purchase = '0'
+    ) clk
+    FULL OUTER JOIN (
+      SELECT *
+      FROM dates, `entdata.ecm.order_header`
+      WHERE 
+        order_date BETWEEN dt_begin AND dt_end
+        AND UPPER(order_source_code) NOT IN ('GR', 'RESHIP', 'CS')
+    ) oh
+      ON ABS(DATE_DIFF(clk.tran_date, oh.order_date, DAY)) BETWEEN 0 AND 1
+      AND oh.webstore_key = clk._webstore_key
+      AND oh.web_ord_num = clk._order_id
+    WHERE oh.web_ord_num IS NOT NULL OR clk._order_id IS NOT NULL
+    GROUP BY tran_date, date_key, webstore_key, order_id, order_header_key, match_status, _visit_id
+  ) match
+  LEFT JOIN (
+    SELECT *
+    FROM `p-wardar-381480765.staging.dks_ecommerce_orders`
+  ) ecom
+    ON ecom.tran_date = match.tran_date
+    AND ecom._webstore_key = match.webstore_key
+    AND ecom._order_id = match.order_id
+  LEFT JOIN (
+    SELECT *
+    FROM `p-wardar-381480765.staging.dks_web_only_orders`
+  ) web
+    ON web.tran_date = match.tran_date
+    AND web._webstore_key = match.webstore_key
+    AND web._order_id = match.order_id
+  LEFT JOIN (
+    SELECT *
+    FROM `p-wardar-381480765.staging.dks_computer_tablet_orders`
+  ) ct
+    ON ct.tran_date = match.tran_date
+    AND ct._webstore_key = match.webstore_key
+    AND ct._order_id = match.order_id
+  LEFT JOIN (
+    SELECT *
+    FROM `p-wardar-381480765.staging.dks_mobile_orders`
+  ) mob
+    ON mob.tran_date = match.tran_date
+    AND mob._webstore_key = match.webstore_key
+    AND mob._order_id = match.order_id
+  LEFT JOIN (
+    SELECT DISTINCT tran_date, _webstore_key, _order_id
+    FROM dates,
+      `p-wardar-381480765.clk.dks_mobile` clk
+    WHERE clk.tran_date BETWEEN dt_begin AND dt_end
+      AND NOT EXISTS (
+        SELECT DISTINCT
+          m.tran_date,
+          m._visit_id AS visit_id
+        FROM
+          `p-wardar-381480765.staging.mobile_app_move_visits_exclusion` m
+        WHERE m.tran_date BETWEEN dt_begin AND dt_end
+          AND m.tran_date = clk.tran_date
+          AND m._visit_id = clk._visit_id
+          AND clk._report_suite = 'app_dsg')
+  ) mob_tst
+    ON mob_tst.tran_date = match.tran_date
+    AND mob_tst._webstore_key = match.webstore_key
+    AND mob_tst._order_id = match.order_id
+  LEFT JOIN (
+    SELECT DISTINCT tran_date, _webstore_key, _order_id, _visit_id
+    FROM dates,
+      `p-wardar-381480765.clk.dsg_native_app` clk
+    WHERE clk.tran_date BETWEEN dt_begin AND dt_end
+      AND NOT EXISTS (
+        SELECT DISTINCT
+          m.tran_date,
+          m._visit_id AS visit_id
+        FROM
+          `p-wardar-381480765.staging.mobile_app_move_visits_exclusion` m
+        WHERE m.tran_date BETWEEN dt_begin AND dt_end
+          AND m.tran_date = clk.tran_date
+          AND m._visit_id = clk._visit_id
+          AND clk._report_suite = 'app_dsg')
+  ) dsg_na
+    ON dsg_na.tran_date = match.tran_date
+    AND dsg_na._webstore_key = match.webstore_key
+    AND dsg_na._order_id = match.order_id
+  LEFT JOIN (
+    SELECT DISTINCT tran_date, _webstore_key, _order_id, _visit_id
+    FROM dates,
+      `p-wardar-381480765.clk.gg_native_app` clk
+    WHERE clk.tran_date BETWEEN dt_begin AND dt_end
+      AND NOT EXISTS (
+        SELECT DISTINCT
+          m.tran_date,
+          m._visit_id AS visit_id
+        FROM
+          `p-wardar-381480765.staging.mobile_app_move_visits_exclusion` m
+        WHERE m.tran_date BETWEEN dt_begin AND dt_end
+          AND m.tran_date = clk.tran_date
+          AND m._visit_id = clk._visit_id
+          AND clk._report_suite = 'app_dsg')
+  ) gg_na
+    ON gg_na.tran_date = match.tran_date
+    AND gg_na._webstore_key = match.webstore_key
+    AND gg_na._order_id = match.order_id                
+  LEFT JOIN (
+    SELECT *
+    FROM `p-wardar-381480765.staging.dks_aos_orders`
+  ) aos
+    ON aos.tran_date = match.tran_date
+    AND aos._webstore_key = match.webstore_key
+    AND aos._order_id = match.order_id
+  LEFT JOIN (
+    SELECT DISTINCT 
+      clkp._order_id,
+      clkp.tran_date,
+      clkp._webstore_key,
+      1 as associate_ind
+    FROM dates, `p-wardar-381480765.clk.clickstream_plus` clkp
+    WHERE clkp.tran_date BETWEEN dates.dt_begin AND dates.dt_end
+      AND clkp._order_id IS NOT NULL
+      AND clkp._visit_id IN (
+        SELECT
+          _visit_id
+        FROM dates, `p-wardar-381480765.clk.clickstream_plus` 
+        WHERE tran_date between dates.dt_begin and dates.dt_end
+          AND ((_report_suite = 'dsg' AND page_url = 'https://www.dickssportinggoods.com/?param=10191674') --New URL
+            OR (_report_suite = 'dsg' AND page_url = 'https://www.dickssportinggoods.com/s/phasma123?param=10191674') --Legacy URL
+            OR (_report_suite = 'gg' AND page_url = 'https://www.golfgalaxy.com/?param=10191676') 
+            OR (_report_suite = 'fns' AND page_url = 'https://www.fieldandstreamshop.com/?param=10191678')
+            OR (_report_suite = 'pbl' AND page_url = 'https://www.publiclands.com/?param=10444063')
+            OR (_report_suite = 'vrst' AND page_url = 'https://www.vrst.com/?param=10191674') 
+            OR (_report_suite = 'calia' AND page_url = 'https://www.calia.com/?param=10191674')
+            OR (_report_suite = 'gone' AND page_url = 'https://www.goinggoinggone.com/?param=10191674')
+            OR (_report_suite = 'app_dsg' AND LOWER(_evar92) LIKE '%https://dickssportinggoods.com/nav/home?param=10558572%')
+            OR (_report_suite = 'app_dsg' AND LOWER(_evar93) LIKE '%https://dickssportinggoods.com/nav/home?param=10558572%')
+            OR (_report_suite = 'app_gg' AND LOWER(_evar92) LIKE '%https://www.golfgalaxy.com/nav/home?param=10191676%')
+            OR (_report_suite = 'app_gg' AND LOWER(_evar93) LIKE '%https://www.golfgalaxy.com/nav/home?param=10191676%')
+            OR (_evar8 = 'Y')) -- Internal flag evar
+            )
+  ) associate
+    ON associate.tran_date = match.tran_date
+    AND associate._webstore_key = match.webstore_key
+    AND associate._order_id = match.order_id
+)
+where 1=1 
+--order by _visit_id
+ --and match_status = 'ods missing'    
