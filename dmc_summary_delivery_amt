@@ -1,0 +1,17 @@
+WITH
+  dates AS (
+      SELECT
+          PARSE_DATE('%Y%m%d', '20230129') AS dt_begin,
+          DATE_SUB(CURRENT_DATE("America/New_York"), INTERVAL 1 DAY) AS dt_end
+  )
+SELECT
+       txnf.order_sku_key,
+       MIN(CASE WHEN df.ship_via = 'DDBO' THEN 'DoorDash - BOOST' 
+                WHEN df.ship_via = 'DDSD' THEN 'DoorDash - AX' ELSE NULL END) AS same_day_ship_via,
+       SUM(CASE WHEN df.carrier_code = 'DDUS' THEN df.ship_freight_amt ELSE 0 END) AS delivery_amt,
+       SUM(CASE WHEN df.carrier_code != 'DDUS' THEN df.ship_freight_amt ELSE 0 END) AS shipping_charge,
+FROM dates, `entdata.frt.order_delivery_frt` df
+JOIN `entdata.ecm.order_sku_txn_fulfill` txnf ON df.order_fulfill_key = txnf.order_fulfill_key
+INNER JOIN `entdata.ecm.order_header` oh ON txnf.order_header_key = oh.order_header_key
+AND order_date BETWEEN dates.dt_begin AND dates.dt_end
+GROUP BY txnf.order_sku_key
