@@ -1,3 +1,6 @@
+select count(order_sku_key) as order_sku_key_count, count(distinct order_sku_key) as distinct_order_sku_key_count
+from
+(
 WITH
   dates AS (
       SELECT
@@ -10,8 +13,14 @@ SELECT
                 WHEN df.ship_via = 'DDSD' THEN 'DoorDash - AX' ELSE NULL END) AS same_day_ship_via,
        SUM(CASE WHEN df.carrier_code = 'DDUS' THEN df.ship_freight_amt ELSE 0 END) AS delivery_amt,
        SUM(CASE WHEN df.carrier_code != 'DDUS' THEN df.ship_freight_amt ELSE 0 END) AS shipping_charge,
+       SUM(delivery_tip_amt) AS delivery_tip_amt
 FROM dates, `entdata.frt.order_delivery_frt` df
-JOIN `entdata.ecm.order_sku_txn_fulfill` txnf ON df.order_fulfill_key = txnf.order_fulfill_key
+INNER JOIN `entdata.ecm.order_sku_txn_fulfill` txnf ON df.order_fulfill_key = txnf.order_fulfill_key
 INNER JOIN `entdata.ecm.order_header` oh ON txnf.order_header_key = oh.order_header_key
-AND order_date BETWEEN dates.dt_begin AND dates.dt_end
+INNER JOIN `entdata.ecm.ao_order_line_unit` ao_olu ON SAFE_CAST(oh.web_ord_num AS STRING) = ao_olu.web_ord_num
+
+WHERE order_date BETWEEN dates.dt_begin AND dates.dt_end
+--AND SAFE_CAST(oh.web_ord_num AS STRING) = '10445684369'
+--AND delivery_tip_amt is not null
 GROUP BY txnf.order_sku_key
+);
