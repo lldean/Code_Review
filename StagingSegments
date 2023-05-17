@@ -1,3 +1,13 @@
+CREATE TABLE `d-wardar-306877093.staging.gg_native_app_orders`
+(
+  tran_date DATE,
+  _webstore_key INT64,
+  _order_id INT64
+)
+OPTIONS(
+  description="https://github.com/dsg-tech/ecommdar-bigquery-sql/blob/develop/staging/gg_native_app_orders.sql"
+);
+
 # TYPE: Table
 # JOB: ImEx 1176 / ODSDM712_1010
 # TARGET: `@PROJECT@.staging.dsg_native_app_orders`
