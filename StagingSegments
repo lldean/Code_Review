@@ -1,0 +1,26 @@
+# TYPE: Table
+# JOB: ImEx 1176 / ODSDM712_1010
+# TARGET: `@PROJECT@.staging.dsg_native_app_orders`
+
+MERGE INTO `@PROJECT@.staging.dsg_native_app_orders` dst
+USING (
+  SELECT DISTINCT tran_date, _webstore_key, _order_id
+  FROM `@PROJECT@.clk.dsg_native_app`
+  WHERE tran_date BETWEEN 
+    DATE_SUB(CURRENT_DATE("America/New_York"), INTERVAL 5 DAY) 
+    AND CURRENT_DATE("America/New_York")
+) src
+ON
+  src.tran_date = dst.tran_date
+  AND src._webstore_key = dst._webstore_key
+  AND src._order_id = dst._order_id
+WHEN NOT MATCHED THEN
+INSERT (
+  tran_date,
+  _webstore_key,
+  _order_id)
+VALUES (
+  src.tran_date,
+  src._webstore_key,
+  src._order_id)
+;
