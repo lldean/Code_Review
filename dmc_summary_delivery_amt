@@ -1,9 +1,17 @@
+# TYPE: View
+# JOB: 
+# TARGET: `d-wardar-306877093.reporting.dmc_summary_order_delivery_frt_ty`
+
+/*  2030519 LD  Initial view creation
+    ========================================================================================================================================================== */
+
 WITH
   dates AS (
       SELECT
           PARSE_DATE('%Y%m%d', '20230129') AS dt_begin,
           DATE_SUB(CURRENT_DATE("America/New_York"), INTERVAL 1 DAY) AS dt_end
   )
+  
 SELECT
        txnf.order_sku_key,
        MIN(CASE WHEN df.ship_via = 'DDBO' THEN 'DoorDash - BOOST' 
