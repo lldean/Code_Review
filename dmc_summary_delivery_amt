@@ -15,7 +15,7 @@ WITH
 SELECT
        txnf.order_sku_key,
        MIN(CASE WHEN df.ship_via = 'DDBO' THEN 'DoorDash - BOOST' 
-                WHEN df.ship_via = 'DDSD' THEN 'DoorDash - AX' ELSE 'Other' END) AS same_day_ship_via,
+                WHEN df.ship_via = 'DDSD' THEN 'DoorDash - AX' ELSE 'Not DoorDash' END) AS same_day_ship_via,
        SUM(CASE WHEN df.carrier_code = 'DDUS' THEN df.ship_freight_amt ELSE 0 END) AS delivery_amt,
        SUM(CASE WHEN df.carrier_code != 'DDUS' THEN df.ship_freight_amt ELSE 0 END) AS shipping_charge,
        SUM(delivery_tip_amt) AS delivery_tip_amt
