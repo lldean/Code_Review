@@ -1,0 +1,5 @@
+use _report_suite colum (not report_suite)
+_report_suite = 'dsg' is the web (desktop and mobile)
+_report_suite = 'app_dsg' is the dsg app
+
+Segment by web only or anything else use the clk.dks_* sebment views
