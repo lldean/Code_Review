@@ -71,7 +71,7 @@ WITH
             q.webstore_key,
             q.product_id,
             q.qtr_name,
-            MIN(q.margin) AS margin,
+            q.margin,
             COUNT(DISTINCT q.web_cust_num) AS order_count
         FROM (
         SELECT
@@ -106,11 +106,11 @@ WITH
             ) q
         GROUP BY
             q.webstore_key,
+            q.product_id,
             q.qtr_name,
-            q.product_id
+            q.margin
         )
         PIVOT(
-            MIN(margin) AS margin,
             MIN(order_count) AS order_count
             FOR qtr_name IN ('1qtr','2qtr','3qtr','4qtr')
             ) qtr
@@ -119,7 +119,7 @@ WITH
     ytd AS (
         SELECT y.webstore_key,
                y.product_id,
-               MIN(y.margin_ytd) AS margin_ytd,
+               y.margin_ytd AS margin_ytd,
                COUNT(DISTINCT y. web_cust_num) AS order_count_ytd
         FROM (
         SELECT
@@ -151,7 +151,8 @@ WITH
         HAVING margin_ytd < 0 
             ) y
         GROUP BY y.webstore_key,
-                 y.product_id
+                 y.product_id,
+                 y.margin_ytd
    )
 
 SELECT vdc.inv_date,
@@ -162,18 +163,16 @@ SELECT vdc.inv_date,
        vdc.clearance_type,
        d.margin_dtd,
        d.order_count_dtd,
-       q.margin_1qtr,
+       q.margin AS margin_qtr,
        q.order_count_1qtr,
-       q.margin_2qtr,
        q.order_count_2qtr,
-       q.margin_3qtr,
        q.order_count_3qtr,
-       q.margin_4qtr,
        q.order_count_4qtr,
        y.margin_ytd,
        y.order_count_ytd
 FROM vdc_cat vdc
 LEFT JOIN dtd d ON vdc.product_id = d.product_id AND vdc.webstore_key = d.webstore_key
 LEFT JOIN qtr q ON vdc.product_id = q.product_id AND vdc.webstore_key = q.webstore_key
-LEFT JOIN ytd y ON vdc.product_id = y.product_id AND vdc.webstore_key = y.webstore_key
+LEFT JOIN ytd y ON vdc.product_id = y.product_id AND vdc.webstore_key = y.webstore_key AND q.margin = y.margin_ytd
+--WHERE vdc.product_id = 15014660;
       
