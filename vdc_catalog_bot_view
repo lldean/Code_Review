@@ -1,0 +1,138 @@
+WITH
+    dates AS (
+        SELECT
+            PARSE_DATE('%Y%m%d', '20230129') AS dt_begin,
+            DATE_SUB(CURRENT_DATE("America/New_York"), INTERVAL 1 DAY) AS dt_end
+    ),
+
+    vdc_cat AS (    
+        SELECT cat.inv_date,
+        cat.product_id,
+        cat.product_number,
+        cat.webstore_key,
+        cat.current_margin,
+        cat.clearance_type
+        FROM(
+            SELECT inv_date, product_id, product_number, dsg_current_margin, gg_current_margin, fns_current_margin, pla_current_margin,
+                    dsg_clearance_type_flag, gg_clearance_type_flag, fns_clearance_type_flag, pla_clearance_type_flag
+            FROM dates, `p-wardar-381480765.reporting.vdc_sku_catalog_fct_snp` 
+            WHERE inv_date = DATE_ADD(dt_end, INTERVAL 1 DAY)
+        )UNPIVOT((current_margin, clearance_type)
+        FOR webstore_key IN ((dsg_current_margin, dsg_clearance_type_flag) AS 6, 
+                            (gg_current_margin, gg_clearance_type_flag) AS 2,
+                            (fns_current_margin, fns_clearance_type_flag) AS 4,
+                            (pla_current_margin, pla_clearance_type_flag) AS 7)) cat
+        WHERE cat.current_margin < 0 OR cat.clearance_type = 'Clearance'
+    ),
+
+    dtd AS (
+        SELECT d.webstore_key,
+               d.product_id,
+               MAX(d.order_date) AS max_order_date_dtd,
+               MIN(d.margin_dtd) AS margin_dtd,
+               COUNT(DISTINCT d. web_cust_num) AS order_count_dtd
+        FROM (
+        SELECT
+            oh.webstore_key,
+            oh.order_date,
+            oh.web_cust_num,
+            pds.product_id,
+            os.order_sku_key,
+            MIN(os.orig_tot_extended_amt - os.orig_tot_cost_amt) AS margin_dtd
+        FROM dates, `entdata.ecm.order_sku_txn_fulfill` txnf
+                    INNER JOIN `entdata.ecm.order_sku` os
+                    ON os.order_sku_key = txnf.order_sku_key
+                    INNER JOIN `entdata.ecm.order_header` oh
+                    ON oh.order_header_key = txnf.order_header_key
+                    INNER JOIN `entdata.prd.dks_sku` pds
+                    ON os.product_id = pds.product_id
+                    INNER JOIN `entdata.ecm.order_fulfill` oful
+                    ON oful.order_fulfill_key = txnf.order_fulfill_key            
+                    INNER JOIN  `entdata.ddw.date_dim` odd 
+                    ON oh.order_date=odd.calendar_date    
+        WHERE oh.order_date BETWEEN dates.dt_begin AND dates.dt_end
+        AND oful.fulfill_channel = 'VDC'
+        GROUP BY
+            oh.webstore_key,
+            oh.order_date,
+            oh.web_cust_num,
+            pds.product_id,
+            os.order_sku_key
+        HAVING margin_DTD < 0 
+            ) d
+        GROUP BY d.webstore_key,
+                 d.product_id
+   ),
+
+    qtr AS (
+        SELECT *
+        FROM (
+        SELECT
+            q.webstore_key,
+            q.product_id,
+            q.qtr_name,
+            MIN(q.margin) AS margin,
+            COUNT(DISTINCT q.web_cust_num) AS order_count
+        FROM (
+        SELECT
+            oh.webstore_key,
+            oh.order_date,
+            oh.web_cust_num,
+            pds.product_id,
+            os.order_sku_key,
+            LOWER(odd.fiscal_quarter_name_abb) AS qtr_name,
+            MIN(os.orig_tot_extended_amt - os.orig_tot_cost_amt) AS margin
+        FROM dates, `entdata.ecm.order_sku_txn_fulfill` txnf
+                    INNER JOIN `entdata.ecm.order_sku` os
+                    ON os.order_sku_key = txnf.order_sku_key
+                    INNER JOIN `entdata.ecm.order_header` oh
+                    ON oh.order_header_key = txnf.order_header_key
+                    INNER JOIN `entdata.prd.dks_sku` pds
+                    ON os.product_id = pds.product_id
+                    INNER JOIN `entdata.ecm.order_fulfill` oful
+                    ON oful.order_fulfill_key = txnf.order_fulfill_key            
+                    INNER JOIN  `entdata.ddw.date_dim` odd 
+                    ON oh.order_date=odd.calendar_date    
+        WHERE oh.order_date BETWEEN dates.dt_begin AND dates.dt_end
+        AND oful.fulfill_channel = 'VDC'
+        GROUP BY
+            oh.webstore_key,
+            oh.order_date,
+            odd.fiscal_quarter_name_abb,
+            oh.web_cust_num,
+            pds.product_id,
+            os.order_sku_key
+        HAVING margin < 0 
+            ) q
+        GROUP BY
+            q.webstore_key,
+            q.qtr_name,
+            q.product_id
+        )
+        PIVOT(
+            MIN(margin) AS margin,
+            MIN(order_count) AS order_count
+            FOR qtr_name IN ('1qtr','2qtr','3qtr','4qtr')
+            ) qtr
+    )
+
+SELECT vdc.inv_date,
+       vdc.product_id,
+       vdc.product_number,
+       vdc.webstore_key,
+       vdc.current_margin,
+       vdc.clearance_type,
+       d.margin_dtd,
+       d.order_count_dtd,
+       q.margin_1qtr,
+       q.order_count_1qtr,
+       q.margin_2qtr,
+       q.order_count_2qtr,
+       q.margin_3qtr,
+       q.order_count_3qtr,
+       q.margin_4qtr,
+       q.order_count_4qtr,
+FROM vdc_cat vdc
+LEFT JOIN dtd d ON vdc.product_id = d.product_id AND vdc.webstore_key = d.webstore_key
+LEFT JOIN qtr q ON vdc.product_id = q.product_id AND vdc.webstore_key = q.webstore_key
+      
