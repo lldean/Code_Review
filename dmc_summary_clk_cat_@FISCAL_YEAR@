@@ -1,0 +1,492 @@
+-- SELECT max(order_date) FROM `d-wardar-306877093.reporting.dmc_summary_clk_cat_2021` 
+-- CREATE OR REPLACE TABLE `d-wardar-306877093.reporting.dmc_summary_clk_cat_2022` AS
+CREATE TABLE `d-wardar-306877093.reporting.dmc_summary_clk_cat_2022` AS
+
+/* Refresh */
+-- MERGE INTO `@PROJECT@.reporting.dmc_summary_clk_cat_@FISCAL_YEAR@` tgt
+-- USING (
+  WITH
+  dates AS (
+      SELECT
+          /* Backfill */
+          CAST('2022-01-30' AS DATE) AS dt_begin,
+          CAST('2023-01-28' AS DATE) AS dt_end
+          /* Refresh */
+          -- CASE
+          --   WHEN DATE_SUB(CURRENT_DATE("America/New_York"), INTERVAL 5 DAY) < PARSE_DATE('%Y%m%d', '@FISCAL_YEAR_BEGIN_DATE@')
+          --   THEN PARSE_DATE('%Y%m%d', '@FISCAL_YEAR_BEGIN_DATE@')
+          --   ELSE DATE_SUB(CURRENT_DATE("America/New_York"), INTERVAL 5 DAY)
+          -- END AS dt_begin,
+          -- DATE_SUB(CURRENT_DATE("America/New_York"), INTERVAL 1 DAY) AS dt_end
+  ),
+    order_match AS (
+        SELECT
+            om.order_header_key,
+            om.tran_date AS order_date,
+            om.webstore_key,
+            om.report_suite,
+            om.match_status,
+            om.site_experience_type,
+            om.checkout_type,
+            om.internal_flag,
+            om.payment_methods,
+            om.swimlane,
+            CASE WHEN om.ecommerce_flag = 1 THEN 'Y' ELSE 'N' END AS ecommerce_flag,
+            CASE WHEN om.web_only_flag = 1 THEN 'Y' ELSE 'N' END AS web_only_flag,
+            CASE WHEN om.computer_tablet_flag = 1 THEN 'Y' ELSE 'N' END AS computer_tablet_flag,
+            CASE WHEN om.mobile_flag = 1 THEN 'Y' ELSE 'N' END AS mobile_flag,
+            CASE WHEN om.aos_flag = 1 THEN 'Y' ELSE 'N' END AS aos_flag,
+            CASE WHEN om.dsg_native_app_flag = 1 THEN 'Y' ELSE 'N' END AS dsg_native_app_flag,
+            CASE WHEN om.gg_native_app_flag = 1 THEN 'Y' ELSE 'N' END AS gg_native_app_flag
+        FROM dates, `p-wardar-381480765.clk_agg.ods_order_match` om
+        LEFT JOIN `entdata.ecm.order_header` oh
+            ON oh.order_header_key = om.order_header_key
+        WHERE om.tran_date BETWEEN dates.dt_begin AND dates.dt_end
+            AND oh.order_date BETWEEN dates.dt_begin AND dates.dt_end
+            AND om.match_status NOT IN ('ods missing', 'no match', 'test order')
+    ),
+    clk_channel AS (
+        SELECT
+            ohc.order_header_key,
+            oh.order_date,
+            oh.webstore_key,
+            ohc.report_suite,
+            cm_ft.channel_manager_hierarchy_key AS channel_manager_hierarchy_key_ft,
+            ohc.chan_mgr_ft_url_campaign,
+            cm_lt.channel_manager_hierarchy_key AS channel_manager_hierarchy_key_lt,
+            ohc.chan_mgr_lt_url_campaign
+        FROM dates, `entdata.clk.order_header_clickstream` ohc
+        JOIN `entdata.ecm.order_header` oh
+            ON oh.order_header_key = ohc.order_header_key
+        JOIN `entdata.clk.channel_manager_hierarchy` cm_ft
+           ON cm_ft.channel_manager_low = ohc.channel_manager_low_ft
+        JOIN `entdata.clk.channel_manager_hierarchy` cm_lt
+            ON cm_lt.channel_manager_low = ohc.channel_manager_low_lt
+        WHERE ohc.order_date BETWEEN dates.dt_begin AND dates.dt_end
+            AND oh.order_date BETWEEN dates.dt_begin AND dates.dt_end
+    ),
+    clk AS (
+        SELECT
+            oh.order_header_key,
+            oh.order_date,
+            oh.webstore_key,
+            MAX(clk._report_suite) AS report_suite,
+            MAX(clk.browser_name) AS browser_version,
+            TRIM(REGEXP_EXTRACT(MAX(clk.browser_name), r'^([A-Za-z\s\.]+)\s*[\d\(]*')) AS browser_name,
+            MAX(clk.device_name) AS device_name,
+            MAX(clk.device_type) AS device_type,
+            MAX(clk.visit_num) AS visit_num,
+            MAX(clk.geo_dma_name) AS geo_dma_name
+        FROM dates, `entdata.ecm.order_header` oh
+        JOIN `p-wardar-381480765.clk.clickstream_plus` clk
+            ON clk.tran_date = oh.order_date
+            AND clk._webstore_key = oh.webstore_key
+            AND clk._order_id = oh.web_ord_num
+        WHERE oh.order_date BETWEEN dates.dt_begin AND dates.dt_end
+            AND clk.tran_date BETWEEN dates.dt_begin AND dates.dt_end
+        GROUP BY
+            oh.order_header_key,
+            oh.order_date,
+            oh.webstore_key
+    ),
+    cat AS (
+        SELECT
+            oh.order_header_key,
+            oh.order_date,
+            oh.webstore_key,
+            /* New/Reactivated/Repeat to Consolidated DKS Omni */
+            cat.new_athlete_dks,
+            cat.lapsed_athlete_dks AS reactivated_athlete_dks,
+            cat.repeat_athlete_dks,
+            /* New/Reactivated/Repeat to Consolidated DKS Online */
+            cat.new_athlete_dks_online,
+            cat.lapsed_athlete_dks_online AS reactivated_dks_online,
+            cat.repeat_athlete_dks_online,
+            /* New/Reactivated/Repeat to DSG Omni */
+            CASE WHEN cat.chain_number = 4 THEN new_athlete_banner END AS new_athlete_dsg,
+            CASE WHEN cat.chain_number = 4 THEN lapsed_athlete_banner END AS reactivated_athlete_dsg,
+            CASE WHEN cat.chain_number = 4 THEN repeat_athlete_banner END AS repeat_athlete_dsg,
+            /* New/Reactivated/Repeat to GG Omni */
+            CASE WHEN cat.chain_number = 5 THEN new_athlete_banner END AS new_athlete_gg,
+            CASE WHEN cat.chain_number = 5 THEN lapsed_athlete_banner END AS reactivated_athlete_gg,
+            CASE WHEN cat.chain_number = 5 THEN repeat_athlete_banner END AS repeat_athlete_gg,
+            /* New/Reactivated/Repeat to FnS Omni */
+            CASE WHEN cat.chain_number = 9 THEN new_athlete_banner END AS new_athlete_fns,
+            CASE WHEN cat.chain_number = 9 THEN lapsed_athlete_banner END AS reactivated_athlete_fns,
+            CASE WHEN cat.chain_number = 9 THEN repeat_athlete_banner END AS repeat_athlete_fns,
+            /* New/Reactivated/Repeat to Public Lands Omni */
+            CASE WHEN cat.chain_number = 11 THEN new_athlete_banner END AS new_athlete_pbl,
+            CASE WHEN cat.chain_number = 11 THEN lapsed_athlete_banner END AS reactivated_athlete_pbl,
+            CASE WHEN cat.chain_number = 11 THEN repeat_athlete_banner END AS repeat_athlete_pbl,
+            /* New/Reactivated/Repeat to Going Going Gone Omni */
+            CASE WHEN cat.chain_number = 13 THEN new_athlete_banner END AS new_athlete_gone,
+            CASE WHEN cat.chain_number = 13 THEN lapsed_athlete_banner END AS reactivated_athlete_gone,
+            CASE WHEN cat.chain_number = 13 THEN repeat_athlete_banner END AS repeat_athlete_gone,
+            /* New/Reactivated/Repeat to DSG Online */
+            CASE WHEN cat.chain_number = 4 THEN new_athlete_banner_online END AS new_athlete_dsg_online,
+            CASE WHEN cat.chain_number = 4 THEN lapsed_athlete_banner_online END AS reactivated_athlete_dsg_online,
+            CASE WHEN cat.chain_number = 4 THEN repeat_athlete_banner_online END AS repeat_athlete_dsg_online,
+            /* New/Reactivated/Repeat to GG Online */
+            CASE WHEN cat.chain_number = 5 THEN new_athlete_banner_online END AS new_athlete_gg_online,
+            CASE WHEN cat.chain_number = 5 THEN lapsed_athlete_banner_online END AS reactivated_athlete_gg_online,
+            CASE WHEN cat.chain_number = 5 THEN repeat_athlete_banner_online END AS repeat_athlete_gg_online,
+            /* New/Reactivated/Repeat to FnS Online */
+            CASE WHEN cat.chain_number = 9 THEN new_athlete_banner_online END AS new_athlete_fns_online,
+            CASE WHEN cat.chain_number = 9 THEN lapsed_athlete_banner_online END AS reactivated_athlete_fns_online,
+            CASE WHEN cat.chain_number = 9 THEN repeat_athlete_banner_online END AS repeat_athlete_fns_online,
+            /* New/Reactivated/Repeat to Public Lands Online */
+            CASE WHEN cat.chain_number = 11 THEN new_athlete_banner_online END AS new_athlete_pbl_online,
+            CASE WHEN cat.chain_number = 11 THEN lapsed_athlete_banner_online END AS reactivated_athlete_pbl_online,
+            CASE WHEN cat.chain_number = 11 THEN repeat_athlete_banner_online END AS repeat_athlete_pbl_online,
+            /* New/Reactivated/Repeat to Going Going Gone Online */
+            CASE WHEN cat.chain_number = 13 THEN new_athlete_banner_online END AS new_athlete_gone_online,
+            CASE WHEN cat.chain_number = 13 THEN lapsed_athlete_banner_online END AS reactivated_athlete_gone_online,
+            CASE WHEN cat.chain_number = 13 THEN repeat_athlete_banner_online END AS repeat_athlete_gone_online
+        FROM dates, `entdata.ecm.order_header` oh
+        JOIN `p-wardar-381480765.customer.txn_acquisition_type` cat
+            ON cat.transaction_id = CAST(oh.web_ord_num AS STRING)
+        WHERE oh.order_date BETWEEN dates.dt_begin AND dates.dt_end
+            AND cat.transaction_date BETWEEN dates.dt_begin AND dates.dt_end
+    )
+  SELECT
+      COALESCE(om.order_header_key, clk_channel.order_header_key, clk.order_header_key, cat.order_header_key) AS order_header_key,
+      MAX(COALESCE(om.order_date, clk_channel.order_date, clk.order_date, cat.order_date)) AS order_date,
+      MAX(COALESCE(om.webstore_key, clk_channel.webstore_key, clk.webstore_key, cat.webstore_key)) AS webstore_key,
+      MAX(COALESCE(om.report_suite, clk_channel.report_suite, clk.report_suite)) AS report_suite,
+      MAX(om.match_status) AS match_status,
+      MAX(om.site_experience_type) AS site_experience_type,
+      MAX(clk.browser_version) AS browser_version,
+      MAX(clk.browser_name) AS browser_name,
+      MAX(clk.device_name) AS device_name,
+      MAX(clk.device_type) AS device_type,
+      MAX(clk.visit_num) AS visit_num,
+      MAX(clk.geo_dma_name) AS geo_dma_name,
+      MAX(om.checkout_type) AS checkout_type,
+      MAX(om.internal_flag) AS internal_flag,
+      MAX(om.payment_methods) AS payment_methods,
+      MAX(om.swimlane) AS swimlane,
+      MAX(om.ecommerce_flag) AS ecommerce_flag,
+      MAX(om.web_only_flag) AS web_only_flag,
+      MAX(om.computer_tablet_flag) AS computer_tablet_flag,
+      MAX(om.mobile_flag) AS mobile_flag,
+      MAX(om.aos_flag) AS aos_flag,
+      MAX(om.dsg_native_app_flag) AS dsg_native_app_flag,
+      MAX(om.gg_native_app_flag) AS gg_native_app_flag,
+      MAX(clk_channel.channel_manager_hierarchy_key_ft) AS channel_manager_hierarchy_key_ft,
+      MAX(clk_channel.chan_mgr_ft_url_campaign) AS chan_mgr_ft_url_campaign,
+      MAX(clk_channel.channel_manager_hierarchy_key_lt) AS channel_manager_hierarchy_key_lt,
+      MAX(clk_channel.chan_mgr_lt_url_campaign) AS chan_mgr_lt_url_campaign,
+      MAX(cat.new_athlete_dks) AS new_athlete_dks_ind,
+      MAX(cat.reactivated_athlete_dks) AS reactivated_athlete_dks_ind,
+      MAX(cat.repeat_athlete_dks) AS repeat_athlete_dks_ind,
+      MAX(cat.new_athlete_dks_online) AS new_athlete_dks_online_ind,
+      MAX(cat.reactivated_dks_online) AS reactivated_dks_online_ind,
+      MAX(cat.repeat_athlete_dks_online) AS repeat_athlete_dks_online_ind,
+      MAX(cat.new_athlete_dsg) AS new_athlete_dsg_ind,
+      MAX(cat.reactivated_athlete_dsg) AS reactivated_athlete_dsg_ind,
+      MAX(cat.repeat_athlete_dsg) AS repeat_athlete_dsg_ind,
+      MAX(cat.new_athlete_gg) AS new_athlete_gg_ind,
+      MAX(cat.reactivated_athlete_gg) AS reactivated_athlete_gg_ind,
+      MAX(cat.repeat_athlete_gg) AS repeat_athlete_gg_ind,
+      MAX(cat.new_athlete_fns) AS new_athlete_fns_ind,
+      MAX(cat.reactivated_athlete_fns) AS reactivated_athlete_fns_ind,
+      MAX(cat.repeat_athlete_fns) AS repeat_athlete_fns_ind,
+      MAX(cat.new_athlete_dsg_online) AS new_athlete_dsg_online_ind,
+      MAX(cat.reactivated_athlete_dsg_online) AS reactivated_athlete_dsg_online_ind,
+      MAX(cat.repeat_athlete_dsg_online) AS repeat_athlete_dsg_online_ind,
+      MAX(cat.new_athlete_gg_online) AS new_athlete_gg_online_ind,
+      MAX(cat.reactivated_athlete_gg_online) AS reactivated_athlete_gg_online_ind,
+      MAX(cat.repeat_athlete_gg_online) AS repeat_athlete_gg_online_ind,
+      MAX(cat.new_athlete_fns_online) AS new_athlete_fns_online_ind,
+      MAX(cat.reactivated_athlete_fns_online) AS reactivated_athlete_fns_online_ind,
+      MAX(cat.repeat_athlete_fns_online) AS repeat_athlete_fns_online_ind,
+      MAX(cat.new_athlete_pbl) AS new_athlete_pbl_ind,
+      MAX(cat.reactivated_athlete_pbl) AS reactivated_athlete_pbl_ind,
+      MAX(cat.repeat_athlete_pbl) AS repeat_athlete_pbl_ind,
+      MAX(cat.new_athlete_gone) AS new_athlete_gone_ind,
+      MAX(cat.reactivated_athlete_gone) AS reactivated_athlete_gone_ind,
+      MAX(cat.repeat_athlete_gone) AS repeat_athlete_gone_ind,
+      MAX(cat.new_athlete_pbl_online) AS new_athlete_pbl_online_ind,
+      MAX(cat.reactivated_athlete_pbl_online) AS reactivated_athlete_pbl_online_ind,
+      MAX(cat.repeat_athlete_pbl_online) AS repeat_athlete_pbl_online_ind,
+      MAX(cat.new_athlete_gone_online) AS new_athlete_gone_online_ind,
+      MAX(cat.reactivated_athlete_gone_online) AS reactivated_athlete_gone_online_ind,
+      MAX(cat.repeat_athlete_gone_online) AS repeat_athlete_gone_online_ind,
+      CURRENT_DATE("America/New_York") AS created_date,
+      CURRENT_DATE("America/New_York") AS date_last_modified
+  FROM order_match om
+  FULL OUTER JOIN clk_channel
+      ON clk_channel.order_header_key = om.order_header_key
+  FULL OUTER JOIN clk
+      ON clk.order_header_key = COALESCE(om.order_header_key, clk_channel.order_header_key)
+  FULL OUTER JOIN cat
+      ON cat.order_header_key = COALESCE(om.order_header_key, clk_channel.order_header_key, clk.order_header_key)
+  GROUP BY
+      order_header_key
+-- ) src
+--     ON src.order_header_key = tgt.order_header_key
+-- WHEN MATCHED
+--   AND (
+--     IFNULL(tgt.order_date, '1970-01-01') <> IFNULL(src.order_date, '1970-01-01')
+--     OR IFNULL(tgt.webstore_key, 0) <> IFNULL(src.webstore_key, 0)
+--     OR IFNULL(tgt.report_suite, "") <> IFNULL(src.report_suite, "")
+--     OR IFNULL(tgt.match_status, "") <> IFNULL(src.match_status, "")
+--     OR IFNULL(tgt.site_experience_type ,"") <> IFNULL(src.site_experience_type, "")
+--     OR IFNULL(tgt.browser_version, "") <> IFNULL(src.browser_version, "")
+--     OR IFNULL(tgt.browser_name, "") <> IFNULL(src.browser_name, "")
+--     OR IFNULL(tgt.device_name, "") <> IFNULL(src.device_name, "")
+--     OR IFNULL(tgt.device_type, "") <> IFNULL(src.device_type, "")
+--     OR IFNULL(tgt.visit_num, 0) <> IFNULL(src.visit_num, 0)
+--     OR IFNULL(tgt.geo_dma_name, "") <> IFNULL(src.geo_dma_name, "")
+--     OR IFNULL(tgt.checkout_type, "") <> IFNULL(src.checkout_type, "")
+--     OR IFNULL(tgt.internal_flag, "") <> IFNULL(src.internal_flag, "")
+--     OR IFNULL(tgt.payment_methods, "") <> IFNULL(src.payment_methods, "")
+--     OR IFNULL(tgt.swimlane, "") <> IFNULL(src.swimlane, "")
+--     OR IFNULL(tgt.ecommerce_flag, "") <> IFNULL(src.ecommerce_flag, "")
+--     OR IFNULL(tgt.web_only_flag, "") <> IFNULL(src.web_only_flag, "")
+--     OR IFNULL(tgt.computer_tablet_flag, "") <> IFNULL(src.computer_tablet_flag, "")
+--     OR IFNULL(tgt.mobile_flag, "") <> IFNULL(src.mobile_flag, "")
+--     OR IFNULL(tgt.aos_flag, "") <> IFNULL(src.aos_flag, "")
+--     OR IFNULL(tgt.dsg_native_app_flag, "") <> IFNULL(src.dsg_native_app_flag, "")
+--     OR IFNULL(tgt.gg_native_app_flag, "") <> IFNULL(src.gg_native_app_flag, "")
+--     OR IFNULL(tgt.channel_manager_hierarchy_key_ft, 0) <> IFNULL(src.channel_manager_hierarchy_key_ft, 0)
+--     OR IFNULL(tgt.chan_mgr_ft_url_campaign, "") <> IFNULL(src.chan_mgr_ft_url_campaign, "")
+--     OR IFNULL(tgt.channel_manager_hierarchy_key_lt, 0) <> IFNULL(src.channel_manager_hierarchy_key_lt, 0)
+--     OR IFNULL(tgt.chan_mgr_lt_url_campaign, "") <> IFNULL(src.chan_mgr_lt_url_campaign, "")
+--     OR IFNULL(tgt.new_athlete_dks_ind, 0) <> IFNULL(src.new_athlete_dks_ind, 0)
+--     OR IFNULL(tgt.reactivated_athlete_dks_ind, 0) <> IFNULL(src.reactivated_athlete_dks_ind, 0)
+--     OR IFNULL(tgt.repeat_athlete_dks_ind, 0) <> IFNULL(src.repeat_athlete_dks_ind, 0)
+--     OR IFNULL(tgt.new_athlete_dks_online_ind, 0) <> IFNULL(src.new_athlete_dks_online_ind, 0)
+--     OR IFNULL(tgt.reactivated_dks_online_ind, 0) <> IFNULL(src.reactivated_dks_online_ind, 0)
+--     OR IFNULL(tgt.repeat_athlete_dks_online_ind, 0) <> IFNULL(src.repeat_athlete_dks_online_ind, 0)
+--     OR IFNULL(tgt.new_athlete_dsg_ind, 0) <> IFNULL(src.new_athlete_dsg_ind, 0)
+--     OR IFNULL(tgt.reactivated_athlete_dsg_ind, 0) <> IFNULL(src.reactivated_athlete_dsg_ind, 0)
+--     OR IFNULL(tgt.repeat_athlete_dsg_ind, 0) <> IFNULL(src.repeat_athlete_dsg_ind, 0)
+--     OR IFNULL(tgt.new_athlete_gg_ind, 0) <> IFNULL(src.new_athlete_gg_ind, 0)
+--     OR IFNULL(tgt.reactivated_athlete_gg_ind, 0) <> IFNULL(src.reactivated_athlete_gg_ind, 0)
+--     OR IFNULL(tgt.repeat_athlete_gg_ind, 0) <> IFNULL(src.repeat_athlete_gg_ind, 0)
+--     OR IFNULL(tgt.new_athlete_fns_ind, 0) <> IFNULL(src.new_athlete_fns_ind, 0)
+--     OR IFNULL(tgt.reactivated_athlete_fns_ind, 0) <> IFNULL(src.reactivated_athlete_fns_ind, 0)
+--     OR IFNULL(tgt.repeat_athlete_fns_ind, 0) <> IFNULL(src.repeat_athlete_fns_ind, 0)
+--     OR IFNULL(tgt.new_athlete_dsg_online_ind, 0) <> IFNULL(src.new_athlete_dsg_online_ind, 0)
+--     OR IFNULL(tgt.reactivated_athlete_dsg_online_ind, 0) <> IFNULL(src.reactivated_athlete_dsg_online_ind, 0)
+--     OR IFNULL(tgt.repeat_athlete_dsg_online_ind, 0) <> IFNULL(src.repeat_athlete_dsg_online_ind, 0)
+--     OR IFNULL(tgt.new_athlete_gg_online_ind, 0) <> IFNULL(src.new_athlete_gg_online_ind, 0)
+--     OR IFNULL(tgt.reactivated_athlete_gg_online_ind, 0) <> IFNULL(src.reactivated_athlete_gg_online_ind, 0)
+--     OR IFNULL(tgt.repeat_athlete_gg_online_ind, 0) <> IFNULL(src.repeat_athlete_gg_online_ind, 0)
+--     OR IFNULL(tgt.new_athlete_fns_online_ind, 0) <> IFNULL(src.new_athlete_fns_online_ind, 0)
+--     OR IFNULL(tgt.reactivated_athlete_fns_online_ind, 0) <> IFNULL(src.reactivated_athlete_fns_online_ind, 0)
+--     OR IFNULL(tgt.repeat_athlete_fns_online_ind, 0) <> IFNULL(src.repeat_athlete_fns_online_ind, 0)
+--     OR IFNULL(tgt.new_athlete_pbl_ind, 0) <> IFNULL(src.new_athlete_pbl_ind, 0)
+--     OR IFNULL(tgt.reactivated_athlete_pbl_ind, 0) <> IFNULL(src.reactivated_athlete_pbl_ind, 0)
+--     OR IFNULL(tgt.repeat_athlete_pbl_ind, 0) <> IFNULL(src.repeat_athlete_pbl_ind, 0)
+--     OR IFNULL(tgt.new_athlete_gone_ind, 0) <> IFNULL(src.new_athlete_gone_ind, 0)
+--     OR IFNULL(tgt.reactivated_athlete_gone_ind, 0) <> IFNULL(src.reactivated_athlete_gone_ind, 0)
+--     OR IFNULL(tgt.repeat_athlete_gone_ind, 0) <> IFNULL(src.repeat_athlete_gone_ind, 0)
+--     OR IFNULL(tgt.new_athlete_pbl_online_ind, 0) <> IFNULL(src.new_athlete_pbl_online_ind, 0)
+--     OR IFNULL(tgt.reactivated_athlete_pbl_online_ind, 0) <> IFNULL(src.reactivated_athlete_pbl_online_ind, 0)
+--     OR IFNULL(tgt.repeat_athlete_pbl_online_ind, 0) <> IFNULL(src.repeat_athlete_pbl_online_ind, 0)
+--     OR IFNULL(tgt.new_athlete_gone_online_ind, 0) <> IFNULL(src.new_athlete_gone_online_ind, 0)
+--     OR IFNULL(tgt.reactivated_athlete_gone_online_ind, 0) <> IFNULL(src.reactivated_athlete_gone_online_ind, 0)
+--     OR IFNULL(tgt.repeat_athlete_gone_online_ind, 0) <> IFNULL(src.repeat_athlete_gone_online_ind, 0)
+--   ) THEN
+--   UPDATE SET
+--       tgt.order_date = src.order_date,
+--       tgt.webstore_key = src.webstore_key,
+--       tgt.report_suite = src.report_suite,
+--       tgt.match_status = src.match_status,
+--       tgt.site_experience_type = src.site_experience_type,
+--       tgt.browser_version = src.browser_version,
+--       tgt.browser_name = src.browser_name,
+--       tgt.device_name = src.device_name,
+--       tgt.device_type = src.device_type,
+--       tgt.visit_num = src.visit_num,
+--       tgt.geo_dma_name = src.geo_dma_name,
+--       tgt.checkout_type = src.checkout_type,
+--       tgt.internal_flag = src.internal_flag,
+--       tgt.payment_methods = src.payment_methods,
+--       tgt.swimlane = src.swimlane,
+--       tgt.ecommerce_flag = src.ecommerce_flag,
+--       tgt.web_only_flag = src.web_only_flag,
+--       tgt.computer_tablet_flag = src.computer_tablet_flag,
+--       tgt.mobile_flag = src.mobile_flag,
+--       tgt.aos_flag = src.aos_flag,
+--       tgt.dsg_native_app_flag = src.dsg_native_app_flag,
+--       tgt.gg_native_app_flag = src.gg_native_app_flag,
+--       tgt.channel_manager_hierarchy_key_ft = src.channel_manager_hierarchy_key_ft,
+--       tgt.chan_mgr_ft_url_campaign = src.chan_mgr_ft_url_campaign,
+--       tgt.channel_manager_hierarchy_key_lt = src.channel_manager_hierarchy_key_lt,
+--       tgt.chan_mgr_lt_url_campaign = src.chan_mgr_lt_url_campaign,
+--       tgt.new_athlete_dks_ind = src.new_athlete_dks_ind,
+--       tgt.reactivated_athlete_dks_ind = src.reactivated_athlete_dks_ind,
+--       tgt.repeat_athlete_dks_ind = src.repeat_athlete_dks_ind,
+--       tgt.new_athlete_dks_online_ind = src.new_athlete_dks_online_ind,
+--       tgt.reactivated_dks_online_ind = src.reactivated_dks_online_ind,
+--       tgt.repeat_athlete_dks_online_ind = src.repeat_athlete_dks_online_ind,
+--       tgt.new_athlete_dsg_ind = src.new_athlete_dsg_ind,
+--       tgt.reactivated_athlete_dsg_ind = src.reactivated_athlete_dsg_ind,
+--       tgt.repeat_athlete_dsg_ind = src.repeat_athlete_dsg_ind,
+--       tgt.new_athlete_gg_ind = src.new_athlete_gg_ind,
+--       tgt.reactivated_athlete_gg_ind = src.reactivated_athlete_gg_ind,
+--       tgt.repeat_athlete_gg_ind = src.repeat_athlete_gg_ind,
+--       tgt.new_athlete_fns_ind = src.new_athlete_fns_ind,
+--       tgt.reactivated_athlete_fns_ind = src.reactivated_athlete_fns_ind,
+--       tgt.repeat_athlete_fns_ind = src.repeat_athlete_fns_ind,
+--       tgt.new_athlete_dsg_online_ind = src.new_athlete_dsg_online_ind,
+--       tgt.reactivated_athlete_dsg_online_ind = src.reactivated_athlete_dsg_online_ind,
+--       tgt.repeat_athlete_dsg_online_ind = src.repeat_athlete_dsg_online_ind,
+--       tgt.new_athlete_gg_online_ind = src.new_athlete_gg_online_ind,
+--       tgt.reactivated_athlete_gg_online_ind = src.reactivated_athlete_gg_online_ind,
+--       tgt.repeat_athlete_gg_online_ind = src.repeat_athlete_gg_online_ind,
+--       tgt.new_athlete_fns_online_ind = src.new_athlete_fns_online_ind,
+--       tgt.reactivated_athlete_fns_online_ind = src.reactivated_athlete_fns_online_ind,
+--       tgt.repeat_athlete_fns_online_ind = src.repeat_athlete_fns_online_ind,
+--       tgt.new_athlete_pbl_ind = src.new_athlete_pbl_ind,
+--       tgt.reactivated_athlete_pbl_ind = src.reactivated_athlete_pbl_ind,
+--       tgt.repeat_athlete_pbl_ind = src.repeat_athlete_pbl_ind,
+--       tgt.new_athlete_gone_ind = src.new_athlete_gone_ind,
+--       tgt.reactivated_athlete_gone_ind = src.reactivated_athlete_gone_ind,
+--       tgt.repeat_athlete_gone_ind = src.repeat_athlete_gone_ind,
+--       tgt.new_athlete_pbl_online_ind = src.new_athlete_pbl_online_ind,
+--       tgt.reactivated_athlete_pbl_online_ind = src.reactivated_athlete_pbl_online_ind,
+--       tgt.repeat_athlete_pbl_online_ind = src.repeat_athlete_pbl_online_ind,
+--       tgt.new_athlete_gone_online_ind = src.new_athlete_gone_online_ind,
+--       tgt.reactivated_athlete_gone_online_ind = src.reactivated_athlete_gone_online_ind,
+--       tgt.repeat_athlete_gone_online_ind = src.repeat_athlete_gone_online_ind,
+--       tgt.date_last_modified = src.date_last_modified
+-- WHEN NOT MATCHED THEN
+--   INSERT (
+--       order_header_key,
+--       order_date,
+--       webstore_key,
+--       report_suite,
+--       match_status,
+--       site_experience_type,
+--       browser_version,
+--       browser_name,
+--       device_name,
+--       device_type,
+--       visit_num,
+--       geo_dma_name,
+--       checkout_type,
+--       internal_flag,
+--       payment_methods,
+--       swimlane,
+--       ecommerce_flag,
+--       web_only_flag,
+--       computer_tablet_flag,
+--       mobile_flag,
+--       aos_flag,
+--       dsg_native_app_flag,
+--       gg_native_app_flag,
+--       channel_manager_hierarchy_key_ft,
+--       chan_mgr_ft_url_campaign,
+--       channel_manager_hierarchy_key_lt,
+--       chan_mgr_lt_url_campaign,
+--       new_athlete_dks_ind,
+--       reactivated_athlete_dks_ind,
+--       repeat_athlete_dks_ind,
+--       new_athlete_dks_online_ind,
+--       reactivated_dks_online_ind,
+--       repeat_athlete_dks_online_ind,
+--       new_athlete_dsg_ind,
+--       reactivated_athlete_dsg_ind,
+--       repeat_athlete_dsg_ind,
+--       new_athlete_gg_ind,
+--       reactivated_athlete_gg_ind,
+--       repeat_athlete_gg_ind,
+--       new_athlete_fns_ind,
+--       reactivated_athlete_fns_ind,
+--       repeat_athlete_fns_ind,
+--       new_athlete_dsg_online_ind,
+--       reactivated_athlete_dsg_online_ind,
+--       repeat_athlete_dsg_online_ind,
+--       new_athlete_gg_online_ind,
+--       reactivated_athlete_gg_online_ind,
+--       repeat_athlete_gg_online_ind,
+--       new_athlete_fns_online_ind,
+--       reactivated_athlete_fns_online_ind,
+--       repeat_athlete_fns_online_ind,
+--       new_athlete_pbl_ind,
+--       reactivated_athlete_pbl_ind,
+--       repeat_athlete_pbl_ind,
+--       new_athlete_gone_ind,
+--       reactivated_athlete_gone_ind,
+--       repeat_athlete_gone_ind,
+--       new_athlete_pbl_online_ind,
+--       reactivated_athlete_pbl_online_ind,
+--       repeat_athlete_pbl_online_ind,
+--       new_athlete_gone_online_ind,
+--       reactivated_athlete_gone_online_ind,
+--       repeat_athlete_gone_online_ind,
+--       created_date,
+--       date_last_modified
+--   )
+--   VALUES (
+--       src.order_header_key,
+--       src.order_date,
+--       src.webstore_key,
+--       src.report_suite,
+--       src.match_status,
+--       src.site_experience_type,
+--       src.browser_version,
+--       src.browser_name,
+--       src.device_name,
+--       src.device_type,
+--       src.visit_num,
+--       src.geo_dma_name,
+--       src.checkout_type,
+--       src.internal_flag,
+--       src.payment_methods,
+--       src.swimlane,
+--       src.ecommerce_flag,
+--       src.web_only_flag,
+--       src.computer_tablet_flag,
+--       src.mobile_flag,
+--       src.aos_flag,
+--       src.dsg_native_app_flag,
+--       src.gg_native_app_flag,
+--       src.channel_manager_hierarchy_key_ft,
+--       src.chan_mgr_ft_url_campaign,
+--       src.channel_manager_hierarchy_key_lt,
+--       src.chan_mgr_lt_url_campaign,
+--       src.new_athlete_dks_ind,
+--       src.reactivated_athlete_dks_ind,
+--       src.repeat_athlete_dks_ind,
+--       src.new_athlete_dks_online_ind,
+--       src.reactivated_dks_online_ind,
+--       src.repeat_athlete_dks_online_ind,
+--       src.new_athlete_dsg_ind,
+--       src.reactivated_athlete_dsg_ind,
+--       src.repeat_athlete_dsg_ind,
+--       src.new_athlete_gg_ind,
+--       src.reactivated_athlete_gg_ind,
+--       src.repeat_athlete_gg_ind,
+--       src.new_athlete_fns_ind,
+--       src.reactivated_athlete_fns_ind,
+--       src.repeat_athlete_fns_ind,
+--       src.new_athlete_dsg_online_ind,
+--       src.reactivated_athlete_dsg_online_ind,
+--       src.repeat_athlete_dsg_online_ind,
+--       src.new_athlete_gg_online_ind,
+--       src.reactivated_athlete_gg_online_ind,
+--       src.repeat_athlete_gg_online_ind,
+--       src.new_athlete_fns_online_ind,
+--       src.reactivated_athlete_fns_online_ind,
+--       src.repeat_athlete_fns_online_ind,
+--       src.new_athlete_pbl_ind,
+--       src.reactivated_athlete_pbl_ind,
+--       src.repeat_athlete_pbl_ind,
+--       src.new_athlete_gone_ind,
+--       src.reactivated_athlete_gone_ind,
+--       src.repeat_athlete_gone_ind,
+--       src.new_athlete_pbl_online_ind,
+--       src.reactivated_athlete_pbl_online_ind,
+--       src.repeat_athlete_pbl_online_ind,
+--       src.new_athlete_gone_online_ind,
+--       src.reactivated_athlete_gone_online_ind,
+--       src.repeat_athlete_gone_online_ind,
+--       src.created_date,
+--       src.date_last_modified
+--   )
+-- ;
