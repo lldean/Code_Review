@@ -17,7 +17,155 @@ SELECT cat.inv_date,
                             (fns_flag, fns_current_margin, fns_clearance_type_flag) AS 4,
                             (pla_flag, pla_current_margin, pla_clearance_type_flag) AS 7)) cat
         WHERE cat.current_margin < 0 OR (cat.clearance_type = 'Clearance' AND webstore_flag = 'Y')
---Usage History View
+--Usage History View DESIGNATED DEMAND VDC
+WITH
+    dates AS (
+        SELECT
+            PARSE_DATE('%Y%m%d', '20230129') AS dt_begin,
+            DATE_SUB(CURRENT_DATE("America/New_York"), INTERVAL 1 DAY) AS dt_end
+    ),
+
+    dtd AS (
+        SELECT d.webstore_key,
+               d.product_id,
+               d.product_number,
+               d.margin_amt_dtd,
+               COUNT(DISTINCT d.web_cust_num) AS order_count_dtd
+        FROM (
+        SELECT
+            oh.webstore_key,
+            oh.order_date,
+            oh.web_cust_num,
+            os.product_id,
+            os.product_number,
+            os.order_sku_key,
+            MIN(os.orig_tot_extended_amt - os.orig_tot_cost_amt) AS margin_amt_dtd
+        FROM dates, `entdata.ecm.order_sku` os
+                    INNER JOIN `entdata.ecm.order_header` oh
+                    ON os.order_header_key = oh.order_header_key
+        WHERE oh.order_date = dates.dt_end
+        AND (os.designated_ff_channel = 'VDC')
+        GROUP BY
+            oh.webstore_key,
+            oh.order_date,
+            oh.web_cust_num,
+            os.product_id,
+            os.product_number,
+            os.order_sku_key
+        HAVING margin_amt_dtd < 0 
+            ) d
+        GROUP BY d.webstore_key,
+                 d.product_id,
+                 d.product_number,
+                 d.margin_amt_dtd
+   ),
+
+    qtr AS (
+        SELECT *
+        FROM (
+        SELECT
+            q.webstore_key,
+            q.product_id,
+            q.product_number,
+            q.qtr_name,
+            q.margin_amt,
+            COUNT(DISTINCT q.web_cust_num) AS order_count
+        FROM (
+        SELECT
+            oh.webstore_key,
+            oh.order_date,
+            oh.web_cust_num,
+            os.product_id,
+            os.product_number,
+            os.order_sku_key,
+            LOWER(odd.fiscal_quarter_name_abb) AS qtr_name,
+            MIN(os.orig_tot_extended_amt - os.orig_tot_cost_amt) AS margin_amt
+        FROM dates, `entdata.ecm.order_sku` os
+                    INNER JOIN `entdata.ecm.order_header` oh
+                    ON os.order_header_key = oh.order_header_key           
+                    INNER JOIN  `entdata.ddw.date_dim` odd 
+                    ON oh.order_date=odd.calendar_date    
+        WHERE oh.order_date BETWEEN dates.dt_begin AND dates.dt_end
+        AND (os.designated_ff_channel = 'VDC')
+        GROUP BY
+            oh.webstore_key,
+            oh.order_date,
+            oh.web_cust_num,
+            os.product_id,
+            os.product_number,
+            os.order_sku_key,
+            odd.fiscal_quarter_name_abb
+        HAVING margin_amt < 0 
+            ) q
+        GROUP BY
+            q.webstore_key,
+            q.product_id,
+            q.product_number,
+            q.qtr_name,
+            q.margin_amt
+        )
+        PIVOT(
+            MIN(order_count) AS order_count
+            FOR qtr_name IN ('1qtr','2qtr','3qtr','4qtr')
+            ) q
+   ),
+
+    ytd AS (
+        SELECT y.webstore_key,
+               y.product_id,
+               y.product_number,
+               y.margin_amt_ytd,
+               COUNT(DISTINCT y.web_cust_num) AS order_count_ytd
+        FROM (
+        SELECT
+            oh.webstore_key,
+            oh.order_date,
+            oh.web_cust_num,
+            os.product_id,
+            os.product_number,
+            os.order_sku_key,
+            MIN(os.orig_tot_extended_amt - os.orig_tot_cost_amt) AS margin_amt_ytd
+        FROM dates, `entdata.ecm.order_sku` os
+                    INNER JOIN `entdata.ecm.order_header` oh
+                    ON os.order_header_key = oh.order_header_key
+        WHERE oh.order_date BETWEEN dates.dt_begin AND dates.dt_end
+        AND (os.designated_ff_channel = 'VDC')
+        GROUP BY
+            oh.webstore_key,
+            oh.order_date,
+            oh.web_cust_num,
+            os.product_id,
+            os.product_number,
+            os.order_sku_key
+        HAVING margin_amt_ytd < 0 
+            ) y
+        GROUP BY y.webstore_key,
+                 y.product_id,
+                 y.product_number,
+                 y.margin_amt_ytd
+   )
+
+SELECT y.webstore_key,
+       y.product_number,
+       d.margin_amt_dtd,
+       d.order_count_dtd,
+       q.margin_amt,
+       q.order_count_1qtr,
+       q.order_count_2qtr,
+       q.order_count_3qtr,
+       q.order_count_4qtr,
+       y.margin_amt_ytd,
+       y.order_count_ytd
+FROM ytd y
+LEFT JOIN dtd d ON y.webstore_key = d.webstore_key AND y.product_id = d.product_id AND y.margin_amt_ytd = d.margin_amt_dtd
+LEFT JOIN qtr q ON y.webstore_key = q.webstore_key AND y.product_id = q.product_id AND y.margin_amt_ytd = q.margin_amt
+WHERE y.product_number in (20362180, 22692407, 21077683, 12750984)
+ORDER BY y.product_number
+
+
+
+
+--OLD BAD History VIEW Fulfilled
 WITH
     dates AS (
         SELECT
