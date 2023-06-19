@@ -29,7 +29,7 @@ WITH
     ),
 
     to_dates AS (
-        SELECT dt_begin,
+        SELECT calendar_date,
                dt_end,
                fiscal_quarter_name_abb AS qtr_name
         FROM dates, `entdata.ddw.date_dim` 
@@ -45,12 +45,12 @@ SELECT x.webstore_key,
        SUM(CASE WHEN x.qtr_name = '2QTR' THEN 1 ELSE 0 END) AS order_count_2qtr,
        SUM(CASE WHEN x.qtr_name = '3QTR' THEN 1 ELSE 0 END) AS order_count_3qtr,
        SUM(CASE WHEN x.qtr_name = '4QTR' THEN 1 ELSE 0 END) AS order_count_4qtr,
-       COUNT(DISTINCT x.web_cust_num) AS order_count_ytd,
+       COUNT(DISTINCT x.web_cust_num) AS order_count_ytd
        
 FROM(       
-SELECT 
-       to_dates.qtr_name,
+SELECT to_dates.calendar_date,
        to_dates.dt_end,
+       to_dates.qtr_name,
        oh.webstore_key,
        oh.order_date,
        oh.web_cust_num,
@@ -62,12 +62,12 @@ SELECT
 FROM to_dates, `entdata.ecm.order_sku` os
 INNER JOIN `entdata.ecm.order_header` oh
 ON os.order_header_key = oh.order_header_key
-WHERE oh.order_date BETWEEN to_dates.dt_begin AND to_dates.dt_end
+WHERE oh.order_date =to_dates.calendar_date
 AND os.designated_ff_channel = 'VDC'
-AND os.product_number in (20362180, 22692407, 21077683, 12750984)
-GROUP BY 
-         to_dates.qtr_name,
+and os.product_number in (20362180, 22692407, 21077683, 12750984)
+GROUP BY to_dates.calendar_date,
          to_dates.dt_end,
+         to_dates.qtr_name,
          oh.webstore_key,
          oh.order_date,
          oh.web_cust_num,
