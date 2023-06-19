@@ -17,6 +17,75 @@ SELECT cat.inv_date,
                             (fns_flag, fns_current_margin, fns_clearance_type_flag) AS 4,
                             (pla_flag, pla_current_margin, pla_clearance_type_flag) AS 7)) cat
         WHERE cat.current_margin < 0 OR (cat.clearance_type = 'Clearance' AND webstore_flag = 'Y')
+
+
+
+--USAGE HISTORY VIEW DESIGNATED DEMAND VDC TAKE 2
+WITH
+    dates AS (
+        SELECT
+            PARSE_DATE('%Y%m%d', '20230129') AS dt_begin,
+            DATE_SUB(CURRENT_DATE("America/New_York"), INTERVAL 1 DAY) AS dt_end
+    ),
+
+    to_dates AS (
+        SELECT dt_begin,
+               dt_end,
+               fiscal_quarter_name_abb AS qtr_name
+        FROM dates, `entdata.ddw.date_dim` 
+        WHERE calendar_date BETWEEN dt_begin AND dt_end
+    )
+
+SELECT x.webstore_key,
+       x.product_id,
+       x.product_number,
+       x.margin_amt,
+       COUNT(DISTINCT CASE WHEN x.order_date = x.dt_end THEN x.web_cust_num ELSE NULL END) AS order_count_dtd,
+       SUM(CASE WHEN x.qtr_name = '1QTR' THEN 1 ELSE 0 END) AS order_count_1qtr,
+       SUM(CASE WHEN x.qtr_name = '2QTR' THEN 1 ELSE 0 END) AS order_count_2qtr,
+       SUM(CASE WHEN x.qtr_name = '3QTR' THEN 1 ELSE 0 END) AS order_count_3qtr,
+       SUM(CASE WHEN x.qtr_name = '4QTR' THEN 1 ELSE 0 END) AS order_count_4qtr,
+       COUNT(DISTINCT x.web_cust_num) AS order_count_ytd,
+       
+FROM(       
+SELECT 
+       to_dates.qtr_name,
+       to_dates.dt_end,
+       oh.webstore_key,
+       oh.order_date,
+       oh.web_cust_num,
+       os.product_id,
+       os.product_number,
+       os.order_sku_key,
+       MIN(os.orig_tot_extended_amt - os.orig_tot_cost_amt) margin_amt
+
+FROM to_dates, `entdata.ecm.order_sku` os
+INNER JOIN `entdata.ecm.order_header` oh
+ON os.order_header_key = oh.order_header_key
+WHERE oh.order_date BETWEEN to_dates.dt_begin AND to_dates.dt_end
+AND os.designated_ff_channel = 'VDC'
+AND os.product_number in (20362180, 22692407, 21077683, 12750984)
+GROUP BY 
+         to_dates.qtr_name,
+         to_dates.dt_end,
+         oh.webstore_key,
+         oh.order_date,
+         oh.web_cust_num,
+         os.product_id,
+         os.product_number,
+         os.order_sku_key
+HAVING margin_amt < 0
+) x
+GROUP BY x.webstore_key,
+         x.product_id,
+         x.product_number,
+         x.margin_amt
+ORDER BY x.webstore_key,
+         x.product_id,
+         x.product_number;
+
+
+
 --Usage History View DESIGNATED DEMAND VDC
 WITH
     dates AS (
