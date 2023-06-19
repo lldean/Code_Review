@@ -41,10 +41,10 @@ SELECT x.webstore_key,
        x.product_number,
        x.margin_amt,
        COUNT(DISTINCT CASE WHEN x.order_date = x.dt_end THEN x.web_cust_num ELSE NULL END) AS order_count_dtd,
-       SUM(CASE WHEN x.qtr_name = '1QTR' THEN 1 ELSE 0 END) AS order_count_1qtr,
-       SUM(CASE WHEN x.qtr_name = '2QTR' THEN 1 ELSE 0 END) AS order_count_2qtr,
-       SUM(CASE WHEN x.qtr_name = '3QTR' THEN 1 ELSE 0 END) AS order_count_3qtr,
-       SUM(CASE WHEN x.qtr_name = '4QTR' THEN 1 ELSE 0 END) AS order_count_4qtr,
+       COUNT(DISTINCT CASE WHEN x.qtr_name = '1QTR' THEN x.web_cust_num ELSE NULL END) AS order_count_1qtr,
+       COUNT(DISTINCT CASE WHEN x.qtr_name = '2QTR' THEN x.web_cust_num ELSE NULL END) AS order_count_2qtr,
+       COUNT(DISTINCT CASE WHEN x.qtr_name = '3QTR' THEN x.web_cust_num ELSE NULL END) AS order_count_3qtr,
+       COUNT(DISTINCT CASE WHEN x.qtr_name = '4QTR' THEN x.web_cust_num ELSE NULL END) AS order_count_4qtr,
        COUNT(DISTINCT x.web_cust_num) AS order_count_ytd
        
 FROM(       
