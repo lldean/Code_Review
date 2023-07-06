@@ -54,7 +54,7 @@ WITH
                 fml.shipping_definition,                
                 fml.service_level_desc,
                 oh.web_ord_num,
-                MAX(presale_flg) AS presale_flg,
+                MAX(os.presale_flg) AS presale_flg,
                 MIN(os.promise_date) AS promise_date,
                 MIN(oh.order_placed_dttm) AS click_dttm,
                 MIN(od.local_delivery_date) AS local_delivery_date
