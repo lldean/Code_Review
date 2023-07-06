@@ -1,0 +1,139 @@
+select fulfill_channel, presale_flg
+from
+(
+WITH
+    dates AS (
+        SELECT
+            PARSE_DATE('%Y%m%d', '20230129') AS dt_begin,
+            DATE_SUB(CURRENT_DATE("America/New_York"), INTERVAL 1 DAY) AS dt_end
+    ),
+    on_time_delivery AS (
+        SELECT
+            order_date,
+            webstore_key,
+            report_suite,
+            order_delivery_key,
+            delivery_status,
+            carrier_code,
+            fulfill_channel,
+            local_delivery_date,
+            parcel_zone,
+            shipping_definition,
+            service_level_desc,
+            web_ord_num,
+            MAX(presale_flg) AS presale_flg,
+            MIN(promise_date) AS promise_date,
+            SUM(ABS(DATE_DIFF(DATE(click_dttm), local_delivery_date, DAY))) AS click_to_deliver_days,
+            SUM(ABS(DATE_DIFF(order_date, promise_date, DAY))) AS order_date_to_promise_date_days,
+            SUM(CASE WHEN local_delivery_date <= promise_date AND delivery_status = "Delivered" THEN 1 ELSE 0 END) AS on_time_success,
+            CASE 
+              WHEN DATE_DIFF(local_delivery_date, DATE(order_date), DAY) <= 3
+              THEN 1
+              ELSE 0
+            END AS delivered_3_days,
+            CASE 
+              WHEN DATE_DIFF(local_delivery_date, DATE(order_date), DAY) <= 2
+              THEN 1
+              ELSE 0
+            END AS delivered_2_days,
+            CASE 
+              WHEN DATE_DIFF(local_delivery_date, DATE(order_date), DAY) <= 1
+              THEN 1
+              ELSE 0
+            END AS delivered_1_days
+        FROM (
+            SELECT
+                os.order_date,
+                os.webstore_key,
+                ohc.report_suite,
+                od.order_delivery_key,
+                od.delivery_status,
+                od.carrier_code,
+                oful.fulfill_channel,
+                od.parcel_zone,
+                fml.shipping_definition,                
+                fml.service_level_desc,
+                oh.web_ord_num,
+                MAX(presale_flg) AS presale_flg,
+                MIN(os.promise_date) AS promise_date,
+                MIN(oh.order_placed_dttm) AS click_dttm,
+                MIN(od.local_delivery_date) AS local_delivery_date
+            FROM dates, `entdata.ecm.order_sku_txn_fulfill` txnf
+            JOIN `entdata.ecm.order_sku` os
+                ON os.order_sku_key = txnf.order_sku_key
+            JOIN `entdata.ecm.order_header` oh
+                ON oh.order_header_key = txnf.order_header_key
+            JOIN `entdata.ecm.order_delivery` od
+                ON od.order_delivery_key = txnf.order_delivery_key
+            LEFT JOIN `entdata.ecm.fulfillment_mode_lkup` fml
+                ON od.fulfillment_mode_key = fml.fulfillment_mode_key
+            JOIN `entdata.ecm.order_fulfill` oful
+                ON oful.order_fulfill_key = txnf.order_fulfill_key
+            LEFT JOIN `entdata.clk.order_header_clickstream` ohc
+                ON ohc.order_header_key = oh.order_header_key
+            WHERE os.order_date BETWEEN dates.dt_begin AND dates.dt_end
+                AND oful.fulfill_channel IN ('VDC', 'SFS', 'DC', 'RDC')
+                AND od.order_delivery_key <> -1
+                AND oh.demand_ind = 1
+            GROUP BY
+                os.order_date,
+                os.webstore_key,
+                ohc.report_suite,
+                od.order_delivery_key,
+                od.delivery_status,
+                od.carrier_code,
+                oful.fulfill_channel,
+                od.parcel_zone,
+                fml.shipping_definition,                
+                fml.service_level_desc,
+                oh.web_ord_num
+        )
+        GROUP BY
+            order_date,
+            webstore_key,
+            report_suite,
+            order_delivery_key,
+            delivery_status,
+            carrier_code,
+            fulfill_channel,
+            local_delivery_date,
+            parcel_zone,
+            shipping_definition,
+            service_level_desc,
+            web_ord_num
+    )
+
+SELECT
+    order_date,
+    webstore_key,
+    report_suite,
+    fulfill_channel,
+    parcel_zone,
+    shipping_definition,                
+    service_level_desc,
+    carrier_code,
+    local_delivery_date,
+    presale_flg,
+    SUM(CASE WHEN on_time_success = 1 AND delivery_status = "Delivered" AND promise_date IS NOT NULL THEN 1 ELSE 0 END) AS on_time_success,
+    COUNT(CASE WHEN delivery_status = "Delivered" THEN order_delivery_key END) AS delivered_package_count,
+    COUNT(CASE WHEN delivery_status = "Delivered" AND promise_date IS NOT NULL THEN order_delivery_key END) AS delivered_package_count_promise_date,
+    SUM(CASE WHEN delivery_status = "Delivered" AND promise_date IS NOT NULL THEN order_date_to_promise_date_days ELSE 0 END) AS order_date_to_promise_date_days,
+    SUM(CASE WHEN delivery_status = "Delivered" THEN click_to_deliver_days ELSE 0 END) AS click_to_deliver_days,
+    COUNT(DISTINCT order_delivery_key) AS total_packages,
+    SUM(delivered_3_days) AS delivered_3_days,
+    SUM(delivered_2_days) AS delivered_2_days,
+    SUM(delivered_1_days) AS delivered_1_days
+FROM on_time_delivery
+GROUP BY
+    order_date,
+    webstore_key,
+    report_suite,
+    fulfill_channel,
+    parcel_zone,
+    shipping_definition,                
+    service_level_desc,
+    carrier_code,
+    local_delivery_date,
+    presale_flg
+    )
+   ;
