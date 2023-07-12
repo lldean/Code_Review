@@ -3,7 +3,7 @@ VDC_NegativeMargin_BOT
 ------------------------------------------------------------------
 # TYPE: View
 # JOB: 
-# TARGET: `@PROJECT@.intel_automation.vdc_negativeMargin_bot`
+# TARGET: `@PROJECT@.intel_automation.vdc_negative_margin_bot`
 
 /* 20230712 LD  Initial VIEW creation.
 ========================================================================================================================================================== */
@@ -55,7 +55,7 @@ VDC_NegativeMargin_Impact
 ------------------------------------------------------------------
 # TYPE: View
 # JOB: 
-# TARGET: `@PROJECT@.intel_automation.vdc_negativeMargin_impact`
+# TARGET: `@PROJECT@.intel_automation.vdc_negative_margin_impact`
 
 /* 20230712 LD  Initial VIEW creation.
 ========================================================================================================================================================== */
