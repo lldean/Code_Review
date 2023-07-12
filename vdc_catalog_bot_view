@@ -1,12 +1,20 @@
 VDC_NegativeMargin_BOT
 --VDC Catalog view MINUS FnS
+------------------------------------------------------------------
+# TYPE: View
+# JOB: 
+# TARGET: `@PROJECT@.intel_automation.vdc_negativeMargin_bot`
+
+/* 20230712 LD  Initial VIEW creation.
+========================================================================================================================================================== */
+
 SELECT cat.inv_date,
-        cat.product_number,
-        cat.webstore_key,
-        cat.webstore_flag,
-        cat.current_margin,
-        cat.clearance_type
-        FROM(
+       cat.product_number,
+       cat.webstore_key,
+       cat.webstore_flag,
+       cat.current_margin,
+       cat.clearance_type
+       FROM(
             SELECT inv_date, product_number, dsg_flag, gg_flag, pla_flag,
                    dsg_current_margin, gg_current_margin, pla_current_margin,
                    dsg_clearance_type_flag, gg_clearance_type_flag, pla_clearance_type_flag
@@ -44,6 +52,13 @@ SELECT cat.inv_date,
 
 VDC_NegativeMargin_Impact
 
+------------------------------------------------------------------
+# TYPE: View
+# JOB: 
+# TARGET: `@PROJECT@.intel_automation.vdc_negativeMargin_impact`
+
+/* 20230712 LD  Initial VIEW creation.
+========================================================================================================================================================== */
 
 WITH
     dates AS (
