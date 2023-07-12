@@ -1,4 +1,22 @@
 VDC_NegativeMargin_BOT
+--VDC Catalog view MINUS FnS
+SELECT cat.inv_date,
+        cat.product_number,
+        cat.webstore_key,
+        cat.webstore_flag,
+        cat.current_margin,
+        cat.clearance_type
+        FROM(
+            SELECT inv_date, product_number, dsg_flag, gg_flag, pla_flag,
+                   dsg_current_margin, gg_current_margin, pla_current_margin,
+                   dsg_clearance_type_flag, gg_clearance_type_flag, pla_clearance_type_flag
+            FROM `p-wardar-381480765.reporting.vdc_sku_catalog_fct_snp` 
+            WHERE inv_date = CURRENT_DATE("America/New_York")
+        )UNPIVOT((webstore_flag, current_margin, clearance_type)
+        FOR webstore_key IN ((dsg_flag, dsg_current_margin, dsg_clearance_type_flag) AS 6, 
+                            (gg_flag, gg_current_margin, gg_clearance_type_flag) AS 2,
+                            (pla_flag, pla_current_margin, pla_clearance_type_flag) AS 7)) cat
+        WHERE cat.current_margin < 0 OR (cat.clearance_type = 'Clearance' AND webstore_flag = 'Y')
 
 --VDC CATALOG VIEW
 SELECT cat.inv_date,
