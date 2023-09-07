@@ -5,18 +5,20 @@ WITH
               cat.product_id,
               cat.webstore_key,
               cat.web_eligibility_flag,
+              cat.web_price,
               cat.current_margin,
               cat.clearance_type
               FROM(
                     SELECT inv_date, product_id, dsg_web_eligibility, gg_web_eligibility, pla_web_eligibility,
+                          dsg_web_price, gg_web_price, pla_web_price,
                           dsg_current_margin, gg_current_margin, pla_current_margin,
                           dsg_clearance_type_flag, gg_clearance_type_flag, pla_clearance_type_flag
                     FROM `p-wardar-381480765.reporting.vdc_sku_catalog_fct_snp` 
                     WHERE inv_date = CURRENT_DATE("America/New_York")
-                )UNPIVOT((web_eligibility_flag, current_margin, clearance_type)
-                FOR webstore_key IN ((dsg_web_eligibility, dsg_current_margin, dsg_clearance_type_flag) AS 6, 
-                                    (gg_web_eligibility, gg_current_margin, gg_clearance_type_flag) AS 2,
-                                    (pla_web_eligibility, pla_current_margin, pla_clearance_type_flag) AS 7)) cat
+                )UNPIVOT((web_eligibility_flag, web_price, current_margin, clearance_type)
+                FOR webstore_key IN ((dsg_web_eligibility, dsg_web_price, dsg_current_margin, dsg_clearance_type_flag) AS 6, 
+                                    (gg_web_eligibility, gg_web_price, gg_current_margin, gg_clearance_type_flag) AS 2,
+                                    (pla_web_eligibility, pla_web_price, pla_current_margin, pla_clearance_type_flag) AS 7)) cat
                 WHERE cat.current_margin < 0 OR (cat.clearance_type = 'Clearance' AND web_eligibility_flag = 'Y')
   )  
 
@@ -26,9 +28,12 @@ WITH
                  WHEN vb.webstore_key = 2 THEN 'GG'
                  WHEN vb.webstore_key = 7 THEN 'PLA' ELSE 'NONE' END AS banner,
             sku.product_number AS sku, 
+            sku.department,
+            sku.sub_department,
             CAST(sku.style_number AS STRING) AS style_number,
             sku.style_desc, 
             vb.web_eligibility_flag,
+            vb.web_price,
             vb.current_margin,
             vb.clearance_type
       FROM vdc_bot vb 
