@@ -35,7 +35,7 @@ WITH
                     txna.order_fulfill_key,
                     oful.fulfill_channel,
                     oful.fulfill_vendor_key,
-                    txna.estimated_ship_date
+                    txna.estimated_ship_dttm
  )
 
       SELECT
