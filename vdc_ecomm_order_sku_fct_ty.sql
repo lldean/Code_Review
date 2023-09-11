@@ -2,7 +2,7 @@
 # JOB: 
 # TARGET: `@PROJECT@.reporting.vdc_ecomm_order_sku_fct_ty`
 /* 20221013 LD  Initial VIEW creation.
-   20230908 LD  VDC Special Dashboard DAR-1964
+   20230908 LD  Updated for VDC Special Dashboard DAR-1964
 ========================================================================================================================================================== */
   
 WITH
