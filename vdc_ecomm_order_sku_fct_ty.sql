@@ -22,7 +22,7 @@ WITH
                     txna.order_fulfill_key,
                     oful.fulfill_channel,
                     oful.fulfill_vendor_key,
-                    DATE(txna.estimated_ship_date) AS estimated_ship_date  
+                    DATE(txna.estimated_ship_dttm) AS estimated_ship_date  
                 FROM dates, `entdata.ecm.order_sku_txn_allocations` txna
                 JOIN `entdata.ecm.order_sku` os
                     ON txna.order_sku_key = os.order_sku_key
