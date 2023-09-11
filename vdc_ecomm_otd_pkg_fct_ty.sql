@@ -87,7 +87,7 @@ WITH
 
         MIN(CASE WHEN os.promise_date IS NULL THEN 1 ELSE 0 END) AS missing_promise_date,
         MIN(CASE WHEN od.local_delivery_date IS NULL THEN 1 ELSE 0 END) AS missing_delivery_date,
-        MIN(CASE WHEN osia.estimated_ship_dttm <= actual_shipped_dttm THEN 1 ELSE 0 END) AS on_time_shipped,
+        MIN(CASE WHEN osia.estimated_ship_dttm <= od.actual_shipped_dttm THEN 1 ELSE 0 END) AS on_time_shipped,
         MIN(CASE WHEN od.local_delivery_date <= os.promise_date THEN 1 ELSE 0 END) AS on_time_success,
         MIN(CASE WHEN od.local_delivery_date < os.promise_date THEN 1 ELSE 0 END) AS early_packages,
         MIN(CASE WHEN od.local_delivery_date < os.promise_date THEN ABS(DATE_DIFF(od.local_delivery_date, os.promise_date, DAY)) END) AS days_early,
