@@ -5,6 +5,7 @@ WITH
               cat.product_id,
               cat.dks_web_atp_qty,
               cat.dks_vdc_atp_qty,
+              cat.sku_current_cost,
               cat.webstore_key,
               cat.vdc_sku_eligible_flg,
               cat.web_eligibility_flag,
@@ -12,7 +13,9 @@ WITH
               cat.current_margin,
               cat.clearance_type
               FROM(
-                    SELECT inv_date, product_id, vdc_sku_eligible_flg, dks_web_atp_qty, dks_vdc_atp_qty, 
+                    SELECT 
+                          inv_date, product_id, vdc_sku_eligible_flg, dks_web_atp_qty,
+                          dks_vdc_atp_qty, sku_current_cost,  
                           dsg_web_eligibility, gg_web_eligibility, pla_web_eligibility, 
                           dsg_web_price, gg_web_price, pla_web_price,
                           dsg_current_margin, gg_current_margin, pla_current_margin,
@@ -44,6 +47,7 @@ WITH
             sku.product_number AS sku, 
             sku.primary_upc,
             vb.web_eligibility_flag,
+            vb.sku_current_cost,
             vb.web_sku_offer_price,
             vb.current_margin,
             CASE WHEN vb.current_margin < 0 THEN 1 ELSE 0 END AS negative_margin_ind,
@@ -53,3 +57,4 @@ WITH
       FROM vdc_bot vb 
       LEFT JOIN entdata.prd.dks_sku sku 
          ON vb.product_id = sku.product_id
+      ORDER BY sku
