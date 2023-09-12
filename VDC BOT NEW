@@ -3,23 +3,28 @@ WITH
       SELECT
               cat.inv_date,
               cat.product_id,
+              cat.dks_web_atp_qty,
+              cat.dks_vdc_atp_qty,
               cat.webstore_key,
+              cat.vdc_sku_eligible_flg,
               cat.web_eligibility_flag,
-              cat.web_price,
+              cat.web_sku_offer_price,
               cat.current_margin,
               cat.clearance_type
               FROM(
-                    SELECT inv_date, product_id, dsg_web_eligibility, gg_web_eligibility, pla_web_eligibility,
+                    SELECT inv_date, product_id, vdc_sku_eligible_flg, dks_web_atp_qty, dks_vdc_atp_qty, 
+                          dsg_web_eligibility, gg_web_eligibility, pla_web_eligibility, 
                           dsg_web_price, gg_web_price, pla_web_price,
                           dsg_current_margin, gg_current_margin, pla_current_margin,
                           dsg_clearance_type_flag, gg_clearance_type_flag, pla_clearance_type_flag
                     FROM `p-wardar-381480765.reporting.vdc_sku_catalog_fct_snp` 
                     WHERE inv_date = CURRENT_DATE("America/New_York")
-                )UNPIVOT((web_eligibility_flag, web_price, current_margin, clearance_type)
+                )UNPIVOT((web_eligibility_flag, web_sku_offer_price, current_margin, clearance_type)
                 FOR webstore_key IN ((dsg_web_eligibility, dsg_web_price, dsg_current_margin, dsg_clearance_type_flag) AS 6, 
                                     (gg_web_eligibility, gg_web_price, gg_current_margin, gg_clearance_type_flag) AS 2,
                                     (pla_web_eligibility, pla_web_price, pla_current_margin, pla_clearance_type_flag) AS 7)) cat
-                WHERE cat.current_margin < 0 OR (cat.clearance_type = 'Clearance' AND web_eligibility_flag = 'Y')
+                WHERE (cat.vdc_sku_eligible_flg = 'Y' AND cat.current_margin < 0 AND cat.web_eligibility_flag = 'Y')
+                   OR (cat.vdc_sku_eligible_flg = 'Y' AND cat.clearance_type = 'Clearance' AND cat.web_eligibility_flag = 'Y')
   )  
 
       SELECT
@@ -27,16 +32,24 @@ WITH
             CASE WHEN vb.webstore_key = 6 THEN 'DSG'
                  WHEN vb.webstore_key = 2 THEN 'GG'
                  WHEN vb.webstore_key = 7 THEN 'PLA' ELSE 'NONE' END AS banner,
-            sku.product_number AS sku, 
+            sku.primary_vendor_number,
+            sku.primary_vendor_name,
+            sku.division,
             sku.department,
             sku.sub_department,
             CAST(sku.style_number AS STRING) AS style_number,
-            sku.style_desc, 
+            sku.style_desc,
+            sku.color_desc,
+            sku.size_code_desc,
+            sku.product_number AS sku, 
+            sku.primary_upc,
             vb.web_eligibility_flag,
-            vb.web_price,
+            vb.web_sku_offer_price,
             vb.current_margin,
-            vb.clearance_type
+            CASE WHEN vb.current_margin < 0 THEN 1 ELSE 0 END AS negative_margin_ind,
+            vb.clearance_type,
+            vb.dks_web_atp_qty,
+            vb.dks_vdc_atp_qty
       FROM vdc_bot vb 
-      JOIN entdata.prd.dks_sku sku 
+      LEFT JOIN entdata.prd.dks_sku sku 
          ON vb.product_id = sku.product_id
-          
