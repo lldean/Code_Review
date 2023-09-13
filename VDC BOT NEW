@@ -46,7 +46,6 @@ WITH
             sku.size_code_desc,
             sku.product_number AS sku, 
             sku.primary_upc,
-            vb.web_eligibility_flag,
             vb.sku_current_cost,
             vb.web_sku_offer_price,
             vb.current_margin,
