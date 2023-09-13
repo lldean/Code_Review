@@ -20,8 +20,9 @@ WITH
                           dsg_web_price, gg_web_price, pla_web_price,
                           dsg_current_margin, gg_current_margin, pla_current_margin,
                           dsg_clearance_type_flag, gg_clearance_type_flag, pla_clearance_type_flag
-                    FROM `p-wardar-381480765.reporting.vdc_sku_catalog_fct_snp` 
-                    WHERE inv_date = CURRENT_DATE("America/New_York")
+                    FROM `p-wardar-381480765.reporting.vdc_sku_catalog_fct_snp`
+                    --WHERE inv_date = CURRENT_DATE("America/New_York")
+                    WHERE inv_date = DATE_SUB(CURRENT_DATE("America/New_York"), INTERVAL 1 DAY)
                 )UNPIVOT((web_eligibility_flag, web_sku_offer_price, current_margin, clearance_type)
                 FOR webstore_key IN ((dsg_web_eligibility, dsg_web_price, dsg_current_margin, dsg_clearance_type_flag) AS 6, 
                                     (gg_web_eligibility, gg_web_price, gg_current_margin, gg_clearance_type_flag) AS 2,
