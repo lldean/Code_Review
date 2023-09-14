@@ -1,7 +1,8 @@
 WITH
     dates AS (
         SELECT
-            PARSE_DATE('%Y%m%d', '20230129') AS dt_begin,
+            PARSE_DATE('%Y%m%d', '20230829') AS dt_begin,
+            -- PARSE_DATE('%Y%m%d', '20230129') AS dt_begin,
             DATE_SUB(CURRENT_DATE('America/New_York'), INTERVAL 1 DAY) AS dt_end
     ),
 
@@ -87,7 +88,10 @@ WITH
 
         MIN(CASE WHEN os.promise_date IS NULL THEN 1 ELSE 0 END) AS missing_promise_date,
         MIN(CASE WHEN od.local_delivery_date IS NULL THEN 1 ELSE 0 END) AS missing_delivery_date,
-        MIN(CASE WHEN osia.estimated_ship_dttm <= od.actual_shipped_dttm THEN 1 ELSE 0 END) AS on_time_shipped,
+        MIN(CASE WHEN osia.estimated_ship_dttm IS NULL THEN 1 ELSE 0 END) AS missing_estimated_shipped_date,
+        
+        MIN(CASE WHEN actual_shipped_dttm <= osia.estimated_ship_dttm THEN 1 ELSE 0 END) AS on_time_shipped,
+
         MIN(CASE WHEN od.local_delivery_date <= os.promise_date THEN 1 ELSE 0 END) AS on_time_success,
         MIN(CASE WHEN od.local_delivery_date < os.promise_date THEN 1 ELSE 0 END) AS early_packages,
         MIN(CASE WHEN od.local_delivery_date < os.promise_date THEN ABS(DATE_DIFF(od.local_delivery_date, os.promise_date, DAY)) END) AS days_early,
@@ -170,4 +174,4 @@ WITH
         os.order_sku_key,
         os.product_id,
         os.product_number  
-;        
+;
