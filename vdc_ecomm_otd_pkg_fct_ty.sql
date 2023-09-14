@@ -42,7 +42,7 @@ WITH
         MIN(os.order_date) AS order_date,
         MIN(os.promise_date) AS promise_date,
         MIN(osia.estimated_ship_dttm) AS estimated_ship_dttm,
-        MIN(osia.estimated_ship_dttm_adjusted) AS estimated_ship_dttm_adjusted,
+        MIN(osia.estimated_ship_dttm_adjusted_grace) AS estimated_ship_dttm_adjusted_grace,
         MIN(extract(DAYofWEEK FROM osia.estimated_ship_dttm)) AS day_of_week_estimated_ship_date, --for testing
         MIN(oh.order_placed_dttm) AS click_dttm,
         MIN(oful.distribution_create_dttm) AS distribution_create_dttm,
