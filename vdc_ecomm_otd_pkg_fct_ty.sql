@@ -14,7 +14,7 @@ WITH
             txna.txn_date AS init_alloc_date,
             DATETIME_ADD(DATE_TRUNC(txna.estimated_ship_dttm, DAY), INTERVAL 86399 SECOND) AS estimated_ship_dttm,
             MIN(CASE WHEN (EXTRACT(DAYofWEEK FROM DATE_TRUNC(txna.estimated_ship_dttm, DAY))) = 6 THEN 
-                DATETIME_ADD(DATE_TRUNC(txna.estimated_ship_dttm, DAY), INTERVAL 84 HOUR) END) AS estimated_ship_dttm_adjusted,
+                DATETIME_ADD(DATE_TRUNC(txna.estimated_ship_dttm, DAY), INTERVAL 84 HOUR) END) AS estimated_ship_dttm_adjusted_grace,
         FROM dates, `entdata.ecm.order_sku_txn_allocations` txna
         JOIN `entdata.ecm.order_fulfill` oful
             ON txna.order_fulfill_key = oful.order_fulfill_key
@@ -95,7 +95,7 @@ WITH
         MIN(CASE WHEN osia.estimated_ship_dttm IS NULL THEN 1 ELSE 0 END) AS missing_estimated_shipped_date,
         
         MIN(CASE WHEN actual_shipped_dttm <= osia.estimated_ship_dttm THEN 1 ELSE 0 END) AS on_time_shipped,
-        MIN(CASE WHEN actual_shipped_dttm <= osia.estimated_ship_dttm_adjusted THEN 1 ELSE 0 END) AS on_time_shipped_adjusted,
+        MIN(CASE WHEN actual_shipped_dttm <= osia.estimated_ship_dttm_adjusted_grace THEN 1 ELSE 0 END) AS on_time_shipped_adjusted_grace,
 
         MIN(CASE WHEN od.local_delivery_date <= os.promise_date THEN 1 ELSE 0 END) AS on_time_success,
         MIN(CASE WHEN od.local_delivery_date < os.promise_date THEN 1 ELSE 0 END) AS early_packages,
