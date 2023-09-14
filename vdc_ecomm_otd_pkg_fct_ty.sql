@@ -1,8 +1,8 @@
 WITH
     dates AS (
         SELECT
-            PARSE_DATE('%Y%m%d', '20230829') AS dt_begin,
-            -- PARSE_DATE('%Y%m%d', '20230129') AS dt_begin,
+            --PARSE_DATE('%Y%m%d', '20230829') AS dt_begin,
+            PARSE_DATE('%Y%m%d', '20230129') AS dt_begin,
             DATE_SUB(CURRENT_DATE('America/New_York'), INTERVAL 1 DAY) AS dt_end
     ),
 
@@ -12,7 +12,9 @@ WITH
             txna.order_sku_key,
             txna.order_fulfill_key,
             txna.txn_date AS init_alloc_date,
-            DATE_TRUNC(txna.estimated_ship_dttm, DAY) AS estimated_ship_dttm 
+            DATETIME_ADD(DATE_TRUNC(txna.estimated_ship_dttm, DAY), INTERVAL 86399 SECOND) AS estimated_ship_dttm,
+            MIN(CASE WHEN (EXTRACT(DAYofWEEK FROM DATE_TRUNC(txna.estimated_ship_dttm, DAY))) = 6 THEN 
+                DATETIME_ADD(DATE_TRUNC(txna.estimated_ship_dttm, DAY), INTERVAL 84 HOUR) END) AS estimated_ship_dttm_adjusted,
         FROM dates, `entdata.ecm.order_sku_txn_allocations` txna
         JOIN `entdata.ecm.order_fulfill` oful
             ON txna.order_fulfill_key = oful.order_fulfill_key
@@ -40,6 +42,8 @@ WITH
         MIN(os.order_date) AS order_date,
         MIN(os.promise_date) AS promise_date,
         MIN(osia.estimated_ship_dttm) AS estimated_ship_dttm,
+        MIN(osia.estimated_ship_dttm_adjusted) AS estimated_ship_dttm_adjusted,
+        MIN(extract(DAYofWEEK FROM osia.estimated_ship_dttm)) AS day_of_week_estimated_ship_date, --for testing
         MIN(oh.order_placed_dttm) AS click_dttm,
         MIN(oful.distribution_create_dttm) AS distribution_create_dttm,
         MIN(osia.init_alloc_date) AS init_alloc_date,
@@ -91,6 +95,7 @@ WITH
         MIN(CASE WHEN osia.estimated_ship_dttm IS NULL THEN 1 ELSE 0 END) AS missing_estimated_shipped_date,
         
         MIN(CASE WHEN actual_shipped_dttm <= osia.estimated_ship_dttm THEN 1 ELSE 0 END) AS on_time_shipped,
+        MIN(CASE WHEN actual_shipped_dttm <= osia.estimated_ship_dttm_adjusted THEN 1 ELSE 0 END) AS on_time_shipped_adjusted,
 
         MIN(CASE WHEN od.local_delivery_date <= os.promise_date THEN 1 ELSE 0 END) AS on_time_success,
         MIN(CASE WHEN od.local_delivery_date < os.promise_date THEN 1 ELSE 0 END) AS early_packages,
