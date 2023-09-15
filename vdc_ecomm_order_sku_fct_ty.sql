@@ -22,7 +22,7 @@ WITH
                     txna.order_fulfill_key,
                     oful.fulfill_channel,
                     oful.fulfill_vendor_key,
-                    DATE(txna.estimated_ship_dttm) AS estimated_ship_date  
+                    Date(txna.estimated_ship_dttm) AS estimated_ship_date  
                 FROM dates, `entdata.ecm.order_sku_txn_allocations` txna
                 JOIN `entdata.ecm.order_sku` os
                     ON txna.order_sku_key = os.order_sku_key
@@ -63,6 +63,7 @@ WITH
           MIN(os.orig_tot_extended_amt) AS ods_revenue,
           MIN(IFNULL(os.sku_average_cost, os.sku_current_cost) * os.orig_tot_units) AS ods_cost,
           # Cancel
+          MIN(c.cancel_designated_ff_channel) AS ods_cancel_designated_ff_channel,
           MIN(c.cancel_reason_code) AS ods_cancel_reason_code,
           MIN(c.cancel_reason_desc) AS ods_cancel_reason_desc,
           MIN(c.cancel_units) AS ods_cancel_units,
@@ -91,6 +92,7 @@ WITH
       LEFT JOIN (
           SELECT
               txnc.order_sku_key,
+              os.designated_ff_channel AS cancel_designated_ff_channel,
               MAX(IFNULL(txnc.cancel_reason_desc, 'Unk')) AS cancel_reason_desc,
               MAX(IFNULL(txnc.cancel_reason_code, 'Unk')) AS cancel_reason_code,
               SUM(CASE
@@ -110,8 +112,10 @@ WITH
               ON os.order_sku_key = txnc.order_sku_key
           WHERE txnc.txn_date BETWEEN dates.dt_begin AND dates.dt_end
               AND os.order_date BETWEEN dates.dt_begin AND dates.dt_end
+              AND os.designated_ff_channel in ('VDC','MULT')
           GROUP BY
-              txnc.order_sku_key ) c
+              txnc.order_sku_key,
+              os.designated_ff_channel ) c
           ON c.order_sku_key = os.order_sku_key 
       # Decline Reasons
       LEFT JOIN (
@@ -272,5 +276,5 @@ WITH
           oh.demand_ind,
           oh.order_source_code,
           oh.order_status_desc,
-          oh.order_placed_dttm      
+          oh.order_placed_dttm   
 ;
