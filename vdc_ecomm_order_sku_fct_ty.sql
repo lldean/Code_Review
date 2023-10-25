@@ -8,8 +8,11 @@
 WITH
   dates AS (
       SELECT
-            CAST('2022-01-30' AS DATE) AS dt_begin,
-            CAST('2023-01-28' AS DATE) AS dt_end
+          -- PARSE_DATE('%Y%m%d', '@FISCAL_YEAR_BEGIN_DATE@') AS dt_begin,
+           CAST('2023-01-29' AS DATE) AS dt_begin,
+          --CAST('2022-01-30' AS DATE) AS dt_begin,
+          --CAST('2021-03-12' AS DATE) AS dt_end
+          DATE_SUB(CURRENT_DATE("America/New_York"), INTERVAL 1 DAY) AS dt_end
   ),
 
   os_txn_sku_alloc_esd AS
