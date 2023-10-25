@@ -8,11 +8,8 @@
 WITH
   dates AS (
       SELECT
-          -- PARSE_DATE('%Y%m%d', '@FISCAL_YEAR_BEGIN_DATE@') AS dt_begin,
-           CAST('2023-01-29' AS DATE) AS dt_begin,
-          --CAST('2022-01-30' AS DATE) AS dt_begin,
-          --CAST('2021-03-12' AS DATE) AS dt_end
-          DATE_SUB(CURRENT_DATE("America/New_York"), INTERVAL 1 DAY) AS dt_end
+            CAST('2022-01-30' AS DATE) AS dt_begin,
+            CAST('2023-01-28' AS DATE) AS dt_end
   ),
 
   os_txn_sku_alloc_esd AS
@@ -20,9 +17,12 @@ WITH
               SELECT 
                     txna.order_sku_key,
                     txna.order_fulfill_key,
+                    txna.txn_date, --init_alloc_date
                     oful.fulfill_channel,
                     oful.fulfill_vendor_key,
-                    Date(txna.estimated_ship_dttm) AS estimated_ship_date  
+                    Date(txna.vdc_estimated_ship_dttm) AS estimated_ship_date,
+                    DATETIME_ADD(DATE_TRUNC(txna.vdc_estimated_ship_dttm, DAY), INTERVAL 86399 SECOND) AS estimated_ship_dttm
+
                 FROM dates, `entdata.ecm.order_sku_txn_allocations` txna
                 JOIN `entdata.ecm.order_sku` os
                     ON txna.order_sku_key = os.order_sku_key
@@ -33,9 +33,10 @@ WITH
                 GROUP BY
                     txna.order_sku_key,
                     txna.order_fulfill_key,
+                    txna.txn_date,
                     oful.fulfill_channel,
                     oful.fulfill_vendor_key,
-                    txna.estimated_ship_dttm
+                    txna.vdc_estimated_ship_dttm
  )
 
       SELECT
@@ -52,8 +53,10 @@ WITH
           esd.fulfill_channel AS ff_channel,
           vdd.vendor_number AS ff_vendor_number,
           vdd.name AS ff_vendor_name,
+          esd.txn_date AS init_alloc_date,
           esd.estimated_ship_date,
-          MIN(CASE WHEN esd.estimated_ship_date IS NULL THEN 1 ELSE 0 END) AS missing_estimated_ship_date,
+          esd.estimated_ship_dttm,
+          MIN(CASE WHEN esd.estimated_ship_dttm IS NULL THEN 1 ELSE 0 END) AS missing_estimated_ship_dttm,
           oh.demand_ind,
           oh.order_source_code,
           oh.order_status_desc,
@@ -70,8 +73,9 @@ WITH
           MIN(c.cancel_amt) AS ods_cancel_amt,
           MIN(c.cancel_cost) AS ods_cancel_cost,
           # Decline Reasons
-          MIN(d.decline_reason_code) AS decline_reason_code,
-          MIN(d.decline_reason_desc) AS decline_reason_desc,
+          MIN(d.decline_reason_code) AS ods_decline_reason_code,
+          MIN(d.decline_reason_desc) AS ods_decline_reason_desc,
+          MIN(d.decline_units) AS ods_decline_units,
           # Open Orders
           MIN(CASE WHEN oh.order_source_code <> 'RESHIP' THEN o.open_units END) AS ods_open_units,
           MIN(CASE WHEN oh.order_source_code <> 'RESHIP' THEN o.open_amt END) AS ods_open_amt,
@@ -123,8 +127,10 @@ WITH
               txna.order_sku_key,
               txna.order_fulfill_key,
               txna.decline_reason_desc,
-              txna.decline_reason_code
+              txna.decline_reason_code,
+              SUM(txna.decline_units) AS decline_units
           FROM `entdata.ecm.order_sku_txn_allocations` txna
+          WHERE decline_reason_code IS NOT NULL
           GROUP BY
               txna.order_sku_key,
               txna.order_fulfill_key,
@@ -249,6 +255,8 @@ WITH
           FROM dates, `entdata.ecm.order_sku_txn_fulfill` txnf
           JOIN `entdata.ecm.order_sku` os
               ON os.order_sku_key = txnf.order_sku_key
+          JOIN `entdata.ecm.order_delivery` od
+              ON txnf.order_delivery_key = od.order_delivery_key
           JOIN `entdata.ecm.order_fulfill` oful
               ON txnf.order_fulfill_key = oful.order_fulfill_key
           WHERE txnf.txn_date BETWEEN dates.dt_begin AND dates.dt_end
@@ -268,13 +276,15 @@ WITH
           os.designated_ff_channel,
           os.order_sku_status_desc,
           os.web_special_order_flg,
+          esd.txn_date,
           esd.order_fulfill_key,
           esd.fulfill_channel,
           vdd.vendor_number,
           vdd.name,
           esd.estimated_ship_date,
+          esd.estimated_ship_dttm,
           oh.demand_ind,
           oh.order_source_code,
           oh.order_status_desc,
-          oh.order_placed_dttm   
-;
+          oh.order_placed_dttm  
+;    
