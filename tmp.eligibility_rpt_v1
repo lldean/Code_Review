@@ -1,0 +1,74 @@
+with i as (  
+  select inv_date
+        ,product_id 
+        ,organization_hierarchy_id
+        ,onhand_qty
+        ,sfs_eligible_flg
+        ,sfs_alloc_eligible_flg
+        ,is_bopis_eligible_flg
+        ,is_isa_eligible_flg
+        ,sfs_override_cd
+        ,sfs_alloc_override_cd
+        ,bopis_override_cd
+        ,isa_override_cd
+        ,br_sfs_loc_eligible_flg
+        ,br_sfs_alloc_loc_eligible_flg
+        ,br_bopis_loc_eligible_flg
+        ,br_isa_loc_eligible_flg
+        ,br_team_room_flg
+        ,br_non_merch_flg
+        ,br_open_audit_reserve_display_flg
+        ,br_gun_flg
+        ,br_special_order_vendor_flg
+        ,br_packable_flg
+        ,br_profitable_flg
+        ,br_ltl_flg
+        ,br_hazmat_flg
+        ,br_claim_flg
+        ,br_clearance_flg
+        ,br_shippable_flg
+        ,sfs_override_id
+        ,sfs_override_level
+        ,sfs_super_override_flg
+        ,sfsa_override_id
+        ,sfsa_override_level
+        ,sfs_alloc_super_override_flg
+        ,bopis_override_id
+        ,bopis_override_level
+        ,bopis_super_override_flg
+        ,isa_override_id
+        ,isa_override_level
+        ,isa_super_override_flg
+ --   from `entdata.inv.snp_prod_org_fulfill_eligibility`
+    from `entdata-dev01212020.inv.snp_prod_org_fulfill_eligibility_v1`
+
+   where onhand_qty>0 
+    and inv_date = current_date()-1 
+    and source_system_cd='EAT')
+SELECT i.*
+    ,clr_color_code
+    ,perm_retail 
+    ,original_retail
+    ,clearance_flag
+    ,sfs_atp_qty 
+    ,bopis_atp_qty
+    ,isa_oh_qty
+    ,unallocatable_qty
+    ,available_quantity
+    ,allocated_quantity
+    ,unavailable_qty
+    ,mia_qty
+    ,oh_qty
+    ,sum(oh_qty) over (partition by p.product_id) sku_oh_qty
+    ,bopl_backstock_atp_qty
+    ,sfs_store_safety_stock
+    ,bopis_store_safety_stock
+    ,isa_store_safety_stock
+FROM `entdata.prc.dks_sku_store_price_today`p 
+  join i
+    on i.product_id = p.product_id
+   and i.organization_hierarchy_id = p.organization_hierarchy_id   
+  join `entdata.ecm.inv_store_prod_atp` e
+    on p.product_id = e.product_id
+    and i.inv_date = e.inv_date
+    and i.organization_hierarchy_id=e.organization_hierarchy_id
