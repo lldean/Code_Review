@@ -1,0 +1,401 @@
+CREATE VIEW `p-wardar-381480765.tmp.on_time_delivery_ty_nike`
+AS 
+WITH
+    dates AS (
+        SELECT
+            PARSE_DATE('%Y%m%d', '20240204') AS dt_begin,
+            DATE_SUB(CURRENT_DATE('America/New_York'), INTERVAL 1 DAY) AS dt_end,
+            --There are invalid start_promise_dates prior to 20220501
+            PARSE_DATE('%Y%m%d', '20220501') AS start_promise_date_begin
+    ),
+
+    clk AS (
+        SELECT
+            clk.tran_date,
+            clk._order_id,
+            clk._sku,
+            clk._webstore_key,
+            MAX(clk._ps_evar78_sa_shown) AS sa_shown,
+            MAX(clk._ps_evar78_calendar_offset) AS calendar_offset
+        FROM dates, `p-wardar-381480765.clk.clickstream_plus` clk
+        WHERE clk.tran_date BETWEEN dates.dt_begin AND dates.dt_end
+            AND clk._order_id IS NOT NULL
+            AND clk._sku IS NOT NULL
+            AND clk._ps_evar78_promise_date IS NOT NULL
+        GROUP BY
+            clk.tran_date,
+            clk._order_id,
+            clk._sku,
+            clk._webstore_key
+    ),
+
+    os_init_alloc AS (
+        SELECT
+            order_sku_key,
+            MIN(txn_date) AS init_alloc_date
+        FROM `entdata.ecm.order_sku_txn_allocations`
+        GROUP BY order_sku_key
+    )
+
+SELECT
+    order_delivery_key,
+    order_fulfill_key,
+    MIN(web_ord_num) AS web_ord_num,
+    MIN(order_fulfill_number) AS order_fulfill_number,
+    MIN(cust_req_fulfillment_mode_key) AS cust_req_fulfillment_mode_key,
+    MIN(cust_req_shipping_definition) AS cust_req_shipping_definition,
+    MIN(order_source_code) AS order_source_code,
+    MIN(order_date) AS order_date,
+    MIN(promise_date) AS promise_date,
+    MIN(click_dttm) AS click_dttm,
+    -- If one start_promise_date in the box is 'NULL', then the entire box is 'NULL'
+    MIN(CASE WHEN edd_range_type = 'no-range' THEN NULL ELSE start_promise_date END) AS start_promise_date,
+    MIN(edd_range_type) AS edd_range_type,
+    MIN(distribution_create_dttm) AS distribution_create_dttm,
+    MIN(init_alloc_date) AS init_alloc_date,
+    MIN(actual_shipped_dttm) AS actual_shipped_dttm,
+    MIN(actual_pickup_date) AS actual_pickup_date,
+    MIN(local_origin_scan_date) AS local_origin_scan_date,
+    MIN(COALESCE(DATE(actual_pickup_date), local_origin_scan_date)) AS pickup_date,
+    MIN(COALESCE(local_delivery_date, nike_delivered_at_date)) AS local_delivery_date,
+    MIN(COALESCE(local_delivery_dttm, nike_delivered_at_dttm)) AS local_delivery_dttm,
+    MIN(address_type) AS address_type,
+    MIN(webstore_key) AS webstore_key,
+    MAX(web_special_order_ind) AS web_special_order_ind,
+    MAX(hot_market_ind) AS hot_market_ind,
+    MAX(presale_ind) AS presale_ind,
+    MAX(clearance_ind) AS clearance_ind,
+    MAX(gtgt_ind) AS gtgt_ind,
+    MIN(gtgt_date) AS gtgt_date,
+    MAX(demand_ind) AS demand_ind,
+    MIN(order_status_desc) AS order_status_desc,
+    MIN(delivery_status_cd) AS delivery_status_cd,
+    MIN(delivery_status) AS delivery_status,
+    MIN(tracking_number) AS tracking_number,
+    MIN(sci_tc_lpn_id) AS sci_tc_lpn_id,
+    MIN(fulfill_organization_hierarchy_id) AS fulfill_organization_hierarchy_id,
+    MIN(fulfill_vendor_key) AS fulfill_vendor_key,
+    MIN(ship_state) AS ship_state,
+    MIN(ship_zip) AS ship_zip,
+    MIN(fulfill_channel) AS fulfill_channel,
+    MIN(shipping_definition) AS shipping_definition,
+    MIN(service_level_desc) AS service_level_desc,
+    MIN(fulfillment_mode_code) AS fulfillment_mode_code,
+    MIN(fulfillment_location_cd) AS fulfillment_location_cd,
+    MIN(first_distribution_ind) AS first_distribution_ind,
+    MIN(distribution_fulfill_status) AS distribution_fulfill_status,
+    MIN(carrier_billed_weight_lbs) AS carrier_billed_weight_lbs,
+    MIN(carrier_code) AS carrier_code,
+    MIN(carrier_desc) AS carrier_desc,
+    MIN(parcel_zone) AS parcel_zone,
+    MAX(CASE WHEN package_count > 1 THEN 'Y' ELSE 'N' END) AS multi_packages,
+    MIN(package_count) AS package_count,
+    MIN(package_type_descr) AS package_type_descr,
+    MAX(sa_shown) AS sa_shown,
+    MAX(calendar_offset) AS calendar_offset,
+    SUM(CASE WHEN promise_date IS NULL THEN 1 ELSE 0 END) AS missing_promise_date,
+    SUM(CASE WHEN start_promise_date IS NULL THEN 1 ELSE 0 END) AS missing_start_promise_date,
+    SUM(CASE WHEN actual_pickup_date IS NULL THEN 1 ELSE 0 END) AS missing_actual_pickup_date,
+    SUM(CASE WHEN COALESCE(local_delivery_date, nike_delivered_at_date) IS NULL THEN 1 ELSE 0 END) AS missing_delivery_date,
+    MIN(CASE WHEN (edd_range_type = 'range' AND COALESCE(local_delivery_date, nike_delivered_at_date) BETWEEN start_promise_date AND promise_date) THEN 'Truly On-Time'
+                   WHEN (edd_range_type = 'no-range' AND COALESCE(local_delivery_date, nike_delivered_at_date) = promise_date) THEN 'Truly On-Time'
+                   WHEN (edd_range_type = 'range' AND COALESCE(local_delivery_date, nike_delivered_at_date) < start_promise_date) THEN 'Truly Early'
+                   WHEN (edd_range_type = 'no-range' AND COALESCE(local_delivery_date, nike_delivered_at_date) < promise_date) THEN 'Truly Early'
+                   WHEN (COALESCE(local_delivery_date, nike_delivered_at_date) > promise_date) THEN 'Truly Late'
+        END) AS pkg_otd,
+    SUM(CASE WHEN COALESCE(local_delivery_date, nike_delivered_at_date) <= promise_date THEN 1 ELSE 0 END) AS on_time_success,
+    SUM(CASE WHEN (edd_range_type = 'range' AND COALESCE(local_delivery_date, nike_delivered_at_date) BETWEEN start_promise_date AND promise_date)
+                   OR (edd_range_type = 'no-range' AND COALESCE(local_delivery_date, nike_delivered_at_date) = promise_date) THEN 1 ELSE 0 END) AS on_time_success_truly,
+    SUM(CASE WHEN COALESCE(local_delivery_date, nike_delivered_at_date) < promise_date THEN 1 ELSE 0 END) AS early_packages,
+    SUM(CASE WHEN (edd_range_type = 'range' AND COALESCE(local_delivery_date, nike_delivered_at_date) < start_promise_date)
+                   OR (edd_range_type = 'no-range' AND COALESCE(local_delivery_date, nike_delivered_at_date) < promise_date) THEN 1 ELSE 0 END) AS early_packages_truly,
+    SUM(CASE WHEN COALESCE(local_delivery_date, nike_delivered_at_date) < promise_date THEN ABS(DATE_DIFF(COALESCE(local_delivery_date, nike_delivered_at_date), promise_date, DAY)) END) AS days_early,
+    SUM(CASE WHEN (edd_range_type = 'range' AND COALESCE(local_delivery_date, nike_delivered_at_date) < start_promise_date) THEN ABS(DATE_DIFF(COALESCE(local_delivery_date, nike_delivered_at_date), start_promise_date, DAY))
+                                                                                                             WHEN (edd_range_type = 'no-range' AND COALESCE(local_delivery_date, nike_delivered_at_date) < promise_date) THEN ABS(DATE_DIFF(COALESCE(local_delivery_date, nike_delivered_at_date), promise_date, DAY)) END) AS days_early_truly,
+    SUM(CASE WHEN edd_range_type = 'range' THEN ABS(DATE_DIFF(order_date, start_promise_date, DAY))
+                                                              WHEN (edd_range_type = 'no-range' AND promise_date IS NOT NULL) THEN ABS(DATE_DIFF(order_date, promise_date, DAY)) END) AS days_to_start_edd,
+    SUM(CASE WHEN COALESCE(local_delivery_date, nike_delivered_at_date) > promise_date THEN 1 ELSE 0 END) AS late_packages,
+    SUM(CASE WHEN COALESCE(local_delivery_date, nike_delivered_at_date) > promise_date THEN ABS(DATE_DIFF(promise_date, COALESCE(local_delivery_date, nike_delivered_at_date), DAY)) END) AS days_late,
+    SUM(ABS(DATE_DIFF(order_date, promise_date, DAY))) AS order_date_to_promise_date_days,
+    SUM(ABS(DATE_DIFF(order_date, start_promise_date, DAY))) AS order_date_to_promise_date_days_truly,
+    SUM(ABS(DATE_DIFF(order_date, COALESCE(local_delivery_date, nike_delivered_at_date), DAY))) AS order_date_to_delivery_date_days,
+    SUM(ABS(DATE_DIFF(promise_date, COALESCE(local_delivery_date, nike_delivered_at_date), DAY))) AS promise_date_to_delivery_date_days,
+    SUM(ABS(DATE_DIFF(actual_shipped_date, COALESCE(local_delivery_date, nike_delivered_at_date), DAY))) AS in_transit_days,
+    SUM(ABS(DATE_DIFF(DATE(click_dttm), init_alloc_date, DAY))) AS click_to_alloc_days,
+    SUM(ABS(`p-wardar-381480765.reporting_function.date_diff_business_days`(DATE(click_dttm), init_alloc_date))) AS click_to_alloc_days_business, -- 1 Click To First Allocation
+    SUM(ABS(DATE_DIFF(DATE(click_dttm), actual_shipped_date, DAY))) AS click_to_ship_days,
+    SUM(ABS(`p-wardar-381480765.reporting_function.date_diff_business_days`(DATE(click_dttm), actual_shipped_date))) AS click_to_ship__days_business, -- 7 Click to Ship
+    SUM(ABS(DATE_DIFF(DATE(click_dttm), COALESCE(local_delivery_date, nike_delivered_at_date), DAY))) AS click_to_deliver_days,
+    SUM(ABS(`p-wardar-381480765.reporting_function.date_diff_business_days`(DATE(click_dttm), COALESCE(local_delivery_date,nike_delivered_at_date)))) AS click_to_deliver_days_business,  -- 6 Click To Delivery   
+    SUM(ABS(DATE_DIFF(actual_shipped_date, distribution_create_date, DAY))) AS do_create_to_ship_days,
+    SUM(ABS(`p-wardar-381480765.reporting_function.date_diff_business_days`(init_alloc_date, distribution_create_date))) AS init_alloc_to_do_create_days_business,  -- 2 First Allocation To Fulfilled Allocation
+    SUM(ABS(DATE_DIFF(init_alloc_date, distribution_create_date, DAY))) AS init_alloc_to_do_create_days,
+    SUM(ABS(`p-wardar-381480765.reporting_function.date_diff_business_days`(distribution_create_date, actual_shipped_date))) AS do_create_to_ship_days_business,  -- 3 Fulfilled Allocation To Ship    
+    SUM(ABS(DATE_DIFF(COALESCE(local_delivery_date, nike_delivered_at_date), distribution_create_date, DAY))) AS do_create_to_delivery_days,
+    SUM(ABS(DATETIME_DIFF(click_dttm, distribution_create_dttm, MINUTE))) AS minutes_to_process,
+    SUM(ABS(DATE_DIFF(order_date, COALESCE(DATE(actual_pickup_date), local_origin_scan_date), DAY))) AS click_to_pickup_days,
+    SUM(ABS(DATE_DIFF(actual_shipped_date, COALESCE(DATE(actual_pickup_date), local_origin_scan_date), DAY))) AS ship_to_pickup_days,
+    SUM(ABS(`p-wardar-381480765.reporting_function.date_diff_business_days`(actual_shipped_date, COALESCE(DATE(actual_pickup_date), local_origin_scan_date)))) AS ship_to_pickup_days_business, -- 4 Ship To Pickup
+    SUM(ABS(DATE_DIFF(COALESCE(DATE(actual_pickup_date), local_origin_scan_date), COALESCE(local_delivery_date, nike_delivered_at_date), DAY))) AS pickup_to_delivery_days,
+    SUM(ABS(`p-wardar-381480765.reporting_function.date_diff_business_days`(COALESCE(DATE(actual_pickup_date), local_origin_scan_date), local_delivery_date))) AS pickup_to_delivery_days_business, --5 Pickup To Delivery
+    SUM(units) AS units,
+    SUM(revenue) AS revenue,
+    (SUM(revenue) - SUM(cost)) AS margin,
+    MAX(order_dmd_units) AS order_dmd_units,
+    MAX(order_dmd_amt) AS order_dmd_amt,
+    MAX(order_dmd_sku_cnt) AS order_dmd_sku_cnt
+FROM (
+    SELECT
+        order_delivery_key,
+        order_fulfill_key,
+        web_ord_num,
+        MIN(order_fulfill_number) AS order_fulfill_number,
+        MIN(cust_req_fulfillment_mode_key) AS cust_req_fulfillment_mode_key,
+        MIN(cust_req_shipping_definition) AS cust_req_shipping_definition,
+        MIN(order_source_code) AS order_source_code,
+        MIN(order_date) AS order_date,
+        MIN(promise_date) AS promise_date,
+        MIN(start_promise_date) AS start_promise_date,
+        MIN(edd_range_type) AS edd_range_type,
+        MIN(click_dttm) AS click_dttm,
+        MIN(init_alloc_date) AS init_alloc_date,
+        MIN(actual_shipped_dttm) AS actual_shipped_dttm,
+        MIN(local_delivery_dttm) AS local_delivery_dttm,
+        MIN(nike_delivered_at_dttm) AS nike_delivered_at_dttm,
+        MIN(CASE
+                WHEN po_box_cd = 'GOV' THEN 'GOV'
+                WHEN po_box_cd = 'POB' THEN 'POB'
+                WHEN po_box_cd = 'TER' THEN 'TER'
+                WHEN ship_state = 'AK' THEN 'Alaska'
+                WHEN ship_state = 'HI' THEN 'Hawaii'
+                WHEN ship_state NOT IN ('AK', 'HI') THEN 'Regular'
+                ELSE 'N/A'
+            END) AS address_type,
+        MIN(webstore_key) AS webstore_key,
+        -- If one SKU in the box is 'Y', then the entire box is 'Y'
+        MAX(CASE WHEN web_special_order_flg = 'Y' THEN 1 ELSE 0 END) AS web_special_order_ind,
+        MAX(CASE WHEN hot_market_flg = 'Y' THEN 1 ELSE 0 END) AS hot_market_ind,
+        MAX(CASE WHEN presale_flg = 'Y' THEN 1 ELSE 0 END) AS presale_ind,
+        MAX(CASE WHEN clearance_type_key IN (3, 4) THEN 1 ELSE 0 END) AS clearance_ind,
+        MAX(gtgt_ind) AS gtgt_ind,
+        MIN(gtgt_date) AS gtgt_date,
+        MAX(demand_ind) AS demand_ind,
+        MIN(order_status_desc) AS order_status_desc,
+        MIN(delivery_status_cd) AS delivery_status_cd,
+        MIN(delivery_status) AS delivery_status,
+        MIN(tracking_number) AS tracking_number,
+        MIN(sci_tc_lpn_id) AS sci_tc_lpn_id,
+        MIN(fulfill_organization_hierarchy_id) AS fulfill_organization_hierarchy_id,
+        MIN(fulfill_vendor_key) AS fulfill_vendor_key,
+        MIN(ship_state) AS ship_state,
+        MIN(ship_zip) AS ship_zip,
+        MIN(fulfill_channel) AS fulfill_channel,
+        MIN(shipping_definition) AS shipping_definition,
+        MIN(fulfillment_mode_code) AS fulfillment_mode_code,
+        MIN(service_level_desc) AS service_level_desc,
+        MIN(fulfillment_location_cd) AS fulfillment_location_cd,
+        MIN(first_distribution_ind) AS first_distribution_ind,
+        MIN(distribution_fulfill_status) AS distribution_fulfill_status,
+        MIN(carrier_billed_weight_lbs) AS carrier_billed_weight_lbs,
+        MIN(carrier_code) AS carrier_code,
+        MIN(carrier_desc) AS carrier_desc,
+        MIN(parcel_zone) AS parcel_zone,
+        COUNT(DISTINCT order_delivery_key) OVER (PARTITION BY web_ord_num) AS package_count,
+        MIN(package_type_descr) AS package_type_descr,
+        MIN(actual_shipped_date) AS actual_shipped_date,
+        MIN(local_delivery_date) AS local_delivery_date,
+        MIN(nike_delivered_at_date) AS nike_delivered_at_date,
+        MIN(local_origin_scan_date) AS local_origin_scan_date,
+        MIN(distribution_create_dttm) AS distribution_create_dttm,
+        MIN(distribution_create_date) AS distribution_create_date,
+        MAX(sa_shown) AS sa_shown,
+        MAX(calendar_offset) AS calendar_offset,
+        MIN(actual_pickup_date) AS actual_pickup_date,
+        SUM(units) AS units,
+        SUM(revenue) AS revenue,
+        SUM(cost) AS cost,
+        MAX(order_dmd_units) AS order_dmd_units,
+        MAX(order_dmd_amt) AS order_dmd_amt,
+        MAX(order_dmd_sku_cnt) AS order_dmd_sku_cnt
+    FROM (
+        SELECT
+            txnf.txn_date,
+            txnf.webstore_key,
+            os.order_sku_key,
+            os.order_date,
+            os.promise_date,
+            CASE WHEN os.order_date < MIN(dates.start_promise_date_begin) THEN NULL ELSE os.start_promise_date END AS start_promise_date,
+            CASE WHEN os.order_date < MIN(dates.start_promise_date_begin) OR os.start_promise_date IS NULL THEN 'no-range' ELSE 'range' END AS edd_range_type,
+            oh.order_placed_dttm AS click_dttm,
+            os.po_box_cd,
+            os.web_special_order_flg,
+            os.hot_market_flg,
+            os.presale_flg,
+            os.clearance_type_key,
+            os.gtgt_ind,
+            os.gtgt_date,
+            os.cust_req_fulfillment_mode_key,
+            fmlc.shipping_definition AS cust_req_shipping_definition,
+            oh.web_ord_num,
+            oh.order_source_code,
+            oh.order_status_desc,
+            oh.demand_ind,
+            oh.order_dmd_units,
+            oh.order_dmd_amt,
+            oh.order_dmd_sku_cnt,
+            od.order_delivery_key,
+            od.tracking_number,
+            od.sci_tc_lpn_id,
+            CAST(od.carrier_billed_weight_lbs AS INT64) AS carrier_billed_weight_lbs,
+            od.carrier_code,
+            od.carrier_desc,
+            od.actual_shipped_date,
+            od.actual_shipped_dttm,
+            od.local_delivery_date,
+            od.local_delivery_dttm,
+            od.local_origin_scan_date,
+            od.package_type_descr,
+            CASE WHEN nike.tracking_number IS NULL THEN od.delivery_status_cd ELSE 'D' END AS delivery_status_cd,
+            CASE WHEN nike.tracking_number IS NULL THEN od.delivery_status ELSE 'Delivered' END AS delivery_status,
+            od.parcel_zone,
+            osia.init_alloc_date,
+            fml.shipping_definition,
+            fml.service_level_desc,
+            fml.fulfillment_mode_code,
+            oful.order_fulfill_key,
+            oful.fulfill_channel,
+            CAST(oful.order_fulfill_number AS INT64) AS order_fulfill_number,
+            oful.first_distribution_ind,
+            CAST(oful.fulfillment_location_cd AS INT64) AS fulfillment_location_cd,
+            oful.fulfill_organization_hierarchy_id,
+            oful.fulfill_vendor_key,
+            oful.ship_state,
+            oful.ship_zip,
+            oful.distribution_fulfill_status,
+            oful.distribution_create_dttm,
+            oful.distribution_create_date,
+            clk.sa_shown,
+            clk.calendar_offset,
+            fdx.actual_pickup_date,
+            CAST(nike.delivered_at AS DATETIME) AS nike_delivered_at_dttm,
+            CAST(nike.delivered_at AS DATE) AS nike_delivered_at_date,
+            SUM(txnf.units) AS units,
+            SUM(txnf.extended_amt) AS revenue,
+            SUM(txnf.average_cost * os.orig_tot_units) AS cost
+        FROM dates, `entdata.ecm.order_sku_txn_fulfill` txnf
+            INNER JOIN `entdata.ecm.order_sku` os
+            ON os.order_sku_key = txnf.order_sku_key
+            INNER JOIN `entdata.ecm.order_header` oh
+            ON oh.order_header_key = txnf.order_header_key
+            INNER JOIN `entdata.ecm.order_delivery` od
+            ON od.order_delivery_key = txnf.order_delivery_key
+            INNER JOIN `entdata.ecm.fulfillment_mode_lkup` fmlc
+            ON os.cust_req_fulfillment_mode_key = fmlc.fulfillment_mode_key
+            INNER JOIN `entdata.ecm.fulfillment_mode_lkup` fml
+            ON od.fulfillment_mode_key = fml.fulfillment_mode_key
+            INNER JOIN `entdata.ecm.order_fulfill` oful
+            ON oful.order_fulfill_key = txnf.order_fulfill_key
+            INNER JOIN os_init_alloc osia
+            ON os.order_sku_key = osia.order_sku_key
+            LEFT OUTER JOIN clk
+            ON clk.tran_date = os.order_date
+                AND clk._order_id = os.web_ord_num
+                AND clk._sku = os.product_number
+                AND clk._webstore_key = os.webstore_key
+            LEFT OUTER JOIN (
+                SELECT
+                    tracking_id,
+                    MIN(actual_pickup_date) AS actual_pickup_date
+                FROM `p-wardar-381480765.lighthouse.fedex_event_tracking_data`
+                WHERE status_description = 'Picked up'
+                    AND customer_order_number IS NOT NULL #Slightly redundant now that we take MIN(). There can be 2 'Picked up' status for a given parcel in fdx. From observation - one of these will typically not have a customer order number
+                GROUP BY
+                    tracking_id,
+                    status_description,
+                    customer_order_number
+            ) fdx
+            ON fdx.tracking_id = od.tracking_number
+                AND od.carrier_code IN ('FEDEX', 'FDXGRND', 'FEDX', 'FDXEXPR')
+            LEFT OUTER JOIN (
+                SELECT tracking_number,
+                       carrier,
+                       actual_carrier,
+                       consumer_order_number,
+                       delivered_at
+                FROM `entdata-dev01212020.rpt.order_vdc_nike_tracking_details`
+                WHERE delivery_status = 'DELIVERED'
+
+            ) nike
+            ON nike.tracking_number = od.tracking_number
+                AND UPPER(nike.actual_carrier) = od.carrier_code
+                AND nike.consumer_order_number = CAST(oh.web_ord_num AS STRING)
+        WHERE os.order_date BETWEEN dates.dt_begin AND dates.dt_end
+            AND oful.fulfill_channel IN ('VDC', 'SFS', 'DC', 'RDC')
+            AND od.order_delivery_key <> -1
+        GROUP BY
+            txnf.txn_date,
+            txnf.webstore_key,
+            os.order_sku_key,
+            os.order_date,
+            os.promise_date,
+            os.start_promise_date,
+            click_dttm,
+            os.po_box_cd,
+            os.web_special_order_flg,
+            os.hot_market_flg,
+            os.presale_flg,
+            os.clearance_type_key,
+            os.gtgt_ind,
+            os.gtgt_date,
+            os.cust_req_fulfillment_mode_key,
+            oh.web_ord_num,
+            oh.order_source_code,
+            oh.order_status_desc,
+            oh.demand_ind,
+            oh.order_dmd_units,
+            oh.order_dmd_amt,
+            oh.order_dmd_sku_cnt,
+            od.order_delivery_key,
+            od.tracking_number,
+            od.sci_tc_lpn_id,
+            od.carrier_billed_weight_lbs,
+            od.carrier_code,
+            od.carrier_desc,
+            od.actual_shipped_date,
+            od.actual_shipped_dttm,
+            od.local_delivery_date,
+            od.local_delivery_dttm,
+            od.local_origin_scan_date,
+            od.package_type_descr,
+            od.delivery_status_cd,
+            od.delivery_status,
+            od.parcel_zone,
+            osia.init_alloc_date,
+            fmlc.shipping_definition,
+            fml.shipping_definition,
+            fml.service_level_desc,
+            fml.fulfillment_mode_code,
+            oful.order_fulfill_key,
+            oful.fulfill_channel,
+            oful.order_fulfill_number,
+            oful.first_distribution_ind,
+            oful.fulfillment_location_cd,
+            oful.fulfill_organization_hierarchy_id,
+            oful.fulfill_vendor_key,
+            oful.ship_state,
+            oful.ship_zip,
+            oful.distribution_fulfill_status,
+            oful.distribution_create_dttm,
+            oful.distribution_create_date,
+            clk.sa_shown,
+            clk.calendar_offset,
+            fdx.actual_pickup_date,
+            nike.tracking_number,
+            nike.delivered_at)
+    GROUP BY
+        order_delivery_key,
+        order_fulfill_key,
+        web_ord_num)
+GROUP BY
+    order_delivery_key,
+    order_fulfill_key;
